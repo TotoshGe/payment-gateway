@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>payment-gateway admin — login</title>
+</head>
+<body style="font-family: sans-serif; max-width: 360px; margin: 80px auto;">
+    <h1>Sign in</h1>
+
+    {% if error %}
+        <p style="color: red;">{{ error.messageKey|trans(error.messageData, 'security') }}</p>
+    {% endif %}
+
+    <form method="post">
+        <div>
+            <label for="username">Email</label><br>
+            <input type="email" id="username" name="_username" value="{{ last_username }}" required>
+        </div>
+        <div>
+            <label for="password">Password</label><br>
+            <input type="password" id="password" name="_password" required>
+        </div>
+        <input type="hidden" name="_csrf_token" value="{{ csrf_token('authenticate') }}">
+        <button type="submit">Sign in</button>
+    </form>
+</body>
+</html>

@@ -1,0 +1,70 @@
+# yaml-language-server: $schema=../vendor/symfony/dependency-injection/Loader/schema/services.schema.json
+
+# This file is the entry point to configure your own services.
+# Files in the packages/ subdirectory configure your dependencies.
+# See also https://symfony.com/doc/current/service_container/import.html
+
+# Put parameters here that don't need to change on each machine where the app is deployed
+# https://symfony.com/doc/current/best_practices.html#use-parameters-for-application-configuration
+parameters:
+    app.payment_gateway_api_key: '%env(PAYMENT_GATEWAY_API_KEY)%'
+    app.okean_callback_url: '%env(OKEAN_CALLBACK_URL)%'
+    app.okean_callback_secret: '%env(OKEAN_CALLBACK_SECRET)%'
+    app.panel_credentials_key: '%env(PANEL_CREDENTIALS_KEY)%'
+    app.deposit_address_ttl_minutes: 90
+    app.deposit_poll_interval_seconds: 15
+    app.withdrawal_poll_interval_seconds: 60
+
+services:
+    # default configuration for services in *this* file
+    _defaults:
+        autowire: true      # Automatically injects dependencies in your services.
+        autoconfigure: true # Automatically registers your services as commands, event subscribers, etc.
+
+    # makes classes in src/ available to be used as services
+    # this creates a service per class whose id is the fully-qualified class name
+    App\:
+        resource: '../src/'
+        exclude:
+            - '../src/DependencyInjection/'
+            - '../src/Entity/'
+            - '../src/Kernel.php'
+            - '../src/Panel/Dto/'
+            - '../src/Panel/Exception/'
+            - '../src/Service/Exception/'
+            - '../src/Message/'
+
+    _instanceof:
+        App\Panel\PanelInterface:
+            tags: ['app.panel_driver']
+
+    App\Security\ApiKeyAuthenticator:
+        arguments:
+            $apiKey: '%app.payment_gateway_api_key%'
+
+    App\Security\WebhookSigner:
+        arguments:
+            $secret: '%app.okean_callback_secret%'
+
+    App\Security\PanelCredentialsEncryptor:
+        arguments:
+            $panelCredentialsKey: '%app.panel_credentials_key%'
+
+    App\MessageHandler\DispatchCallbackMessageHandler:
+        arguments:
+            $okeanCallbackUrl: '%app.okean_callback_url%'
+
+    App\Service\DepositRequestService:
+        arguments:
+            $addressTtlMinutes: '%app.deposit_address_ttl_minutes%'
+
+    # add more service definitions when explicit configuration is needed
+    # please note that last definitions always *replace* previous ones
+
+when@test:
+    services:
+        App\Tests\Fixture\FakePanel:
+            autowire: true
+            autoconfigure: true
+            public: true
+            tags: ['app.panel_driver']

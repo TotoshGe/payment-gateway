@@ -1,0 +1,28 @@
+framework:
+    messenger:
+        failure_transport: failed
+
+        transports:
+            # Doctrine transport: no extra broker needed for v1, see ARCHITECTURE.md
+            # section 8 -- easy to swap for Redis/AMQP later without touching handlers.
+            async:
+                dsn: '%env(MESSENGER_TRANSPORT_DSN)%'
+                retry_strategy:
+                    # Approximates the escalating backoff from ARCHITECTURE.md 3.4
+                    # (10s, 30s, ~1.5min, ... capped at 6h) via Messenger's own
+                    # multiplier strategy rather than a hand-rolled scheduler.
+                    max_retries: 8
+                    delay: 10000
+                    multiplier: 3
+                    max_delay: 21600000
+            failed: 'doctrine://default?queue_name=failed'
+
+        routing:
+            App\Message\DispatchCallbackMessage: async
+
+when@test:
+    framework:
+        messenger:
+            transports:
+                async: 'in-memory://'
+                failed: 'in-memory://'

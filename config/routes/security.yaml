@@ -1,0 +1,7 @@
+# Auto-generation (security.route_loader.logout) only fires for firewalls whose
+# logout.path starts with "/"; ours is a route-NAME ("admin_logout", matched by
+# LogoutListener against the current route, same convention rates-service uses),
+# so the route itself has to exist -- no controller needed, the security firewall
+# intercepts the request before any controller would run.
+admin_logout:
+    path: /admin/logout
