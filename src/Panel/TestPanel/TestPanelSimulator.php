@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Panel\BinanceTest;
+namespace App\Panel\TestPanel;
 
 use App\Entity\DepositRequest;
 use App\Entity\Panel;
@@ -13,19 +13,21 @@ use App\Service\WithdrawalRequestService;
 use Psr\Log\LoggerInterface;
 
 /**
- * The only way a Binance Test request changes status. It does not notify
+ * The only way a Test Panel request changes status. It does not notify
  * Okean itself: it calls the very same applyStatusUpdate()/expire() the real
  * pollers call, and those dispatch the signed callback -- there is no second
  * notification path.
  *
- * Refuses anything that is not a request on the binance_test panel, and
- * refuses everything while the env flag is off.
+ * Only for requests on the test panel (code binance_test). The transitions
+ * offered are the ones BinancePanel's pollers can produce: a deposit goes
+ * RECEIVED/COMPLETED or expires (deposits never FAIL on Binance); a withdrawal
+ * goes PROCESSING/COMPLETED/FAILED.
  */
-final class BinanceTestSimulator
+final class TestPanelSimulator
 {
     private const DEPOSIT_TRANSITIONS = [
-        'awaiting_payment' => [PaymentRequestStatus::RECEIVED, PaymentRequestStatus::COMPLETED, PaymentRequestStatus::FAILED, PaymentRequestStatus::EXPIRED],
-        'received' => [PaymentRequestStatus::COMPLETED, PaymentRequestStatus::FAILED],
+        'awaiting_payment' => [PaymentRequestStatus::RECEIVED, PaymentRequestStatus::COMPLETED, PaymentRequestStatus::EXPIRED],
+        'received' => [PaymentRequestStatus::COMPLETED],
     ];
 
     private const WITHDRAWAL_TRANSITIONS = [
@@ -34,16 +36,10 @@ final class BinanceTestSimulator
     ];
 
     public function __construct(
-        private readonly BinanceTestPanel $panel,
         private readonly DepositRequestService $depositRequestService,
         private readonly WithdrawalRequestService $withdrawalRequestService,
         private readonly LoggerInterface $logger,
     ) {
-    }
-
-    public function isEnabled(): bool
-    {
-        return $this->panel->isEnabled();
     }
 
     /**
@@ -78,7 +74,7 @@ final class BinanceTestSimulator
         $this->assertSimulatable($request->getPanel());
 
         if (!\in_array($target, $this->availableDepositTargets($request), true)) {
-            throw new BinanceTestSimulationException(sprintf(
+            throw new TestPanelSimulationException(sprintf(
                 'Deposit %s is "%s"; cannot move it to "%s".',
                 $request->getId(),
                 $request->getStatus()->value,
@@ -87,10 +83,10 @@ final class BinanceTestSimulator
         }
 
         if (null !== $amount && 1 !== preg_match('/^\d+(\.\d+)?$/', $amount)) {
-            throw new BinanceTestSimulationException('Amount must be a plain decimal string.');
+            throw new TestPanelSimulationException('Amount must be a plain decimal string.');
         }
 
-        $this->logger->warning(BinanceTestPanel::LOG_PREFIX.' simulating deposit status change', [
+        $this->logger->warning(TestPanel::LOG_PREFIX.' simulating deposit status change', [
             'requestId' => (string) $request->getId(),
             'from' => $request->getStatus()->value,
             'to' => $target->value,
@@ -102,17 +98,12 @@ final class BinanceTestSimulator
             return;
         }
 
-        $observed = match ($target) {
-            PaymentRequestStatus::FAILED => '0',
-            default => $amount ?? $request->getExpectedAmount(),
-        };
-
         $this->depositRequestService->applyStatusUpdate(
             $request,
             $target,
-            $observed,
+            $amount ?? $request->getExpectedAmount(),
             PaymentRequestStatus::COMPLETED === $target ? 12 : 1,
-            BinanceTestPanel::fakeDepositReference((string) $request->getId()),
+            TestPanel::fakeDepositReference((string) $request->getId()),
         );
     }
 
@@ -121,7 +112,7 @@ final class BinanceTestSimulator
         $this->assertSimulatable($request->getPanel());
 
         if (!\in_array($target, $this->availableWithdrawalTargets($request), true)) {
-            throw new BinanceTestSimulationException(sprintf(
+            throw new TestPanelSimulationException(sprintf(
                 'Withdrawal %s is "%s"; cannot move it to "%s".',
                 $request->getId(),
                 $request->getStatus()->value,
@@ -129,7 +120,7 @@ final class BinanceTestSimulator
             ));
         }
 
-        $this->logger->warning(BinanceTestPanel::LOG_PREFIX.' simulating withdrawal status change', [
+        $this->logger->warning(TestPanel::LOG_PREFIX.' simulating withdrawal status change', [
             'requestId' => (string) $request->getId(),
             'from' => $request->getStatus()->value,
             'to' => $target->value,
@@ -138,24 +129,20 @@ final class BinanceTestSimulator
         $this->withdrawalRequestService->applyStatusUpdate(
             $request,
             $target,
-            PaymentRequestStatus::COMPLETED === $target ? BinanceTestPanel::fakeTxHash((string) $request->getId()) : null,
-            PaymentRequestStatus::FAILED === $target ? 'TEST: simulated failure (Binance Test panel)' : null,
+            PaymentRequestStatus::COMPLETED === $target ? TestPanel::fakeTxHash((string) $request->getId()) : null,
+            PaymentRequestStatus::FAILED === $target ? 'Test Panel: simulated failure' : null,
         );
     }
 
     private function isSimulatable(Panel $panel): bool
     {
-        return BinanceTestPanel::CODE === $panel->getCode() && $this->panel->isEnabled();
+        return TestPanel::CODE === $panel->getCode();
     }
 
     private function assertSimulatable(Panel $panel): void
     {
-        if (BinanceTestPanel::CODE !== $panel->getCode()) {
-            throw new BinanceTestSimulationException(sprintf('Request belongs to panel "%s", not %s -- refusing to simulate.', $panel->getCode(), BinanceTestPanel::CODE));
-        }
-
-        if (!$this->panel->isEnabled()) {
-            throw new BinanceTestSimulationException('Binance Test panel is disabled (BINANCE_TEST_PANEL_ENABLED is off).');
+        if (TestPanel::CODE !== $panel->getCode()) {
+            throw new TestPanelSimulationException(sprintf('Request belongs to panel "%s", not %s -- refusing to simulate.', $panel->getCode(), TestPanel::CODE));
         }
     }
 }

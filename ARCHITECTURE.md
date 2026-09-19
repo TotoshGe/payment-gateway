@@ -229,6 +229,50 @@ interface PanelInterface
 - **`BinancePanel implements PanelInterface`** — первая и единственная
   реализация в этом раунде проектирования.
 
+### 2.1 Test Panel (код `binance_test`)
+
+Обычная панель, отдельная реализация `PanelInterface`
+(`src/Panel/TestPanel/TestPanel.php`). Для Okean и для всего общего кода
+(`DepositRequestService`, `WithdrawalRequestService`, `WalletAddressPoolService`,
+`CallbackDispatcher`, поллеры, admin) она неотличима от Binance: те же
+статусы и переходы, те же события колбеков (`deposit.received`,
+`deposit.expired`, `withdrawal.completed`, `withdrawal.failed`, ...), тот же
+формат ответов API и payload колбека. Никаких `test_mode`/`notice`, никаких
+флагов окружения. Это проверяет `tests/Functional/TestPanel/BinanceParityTest.php`
+(один сценарий на реальном `BinancePanel` с замоканным HTTP и на Test Panel,
+транскрипты обязаны совпасть).
+
+Отличия ровно там, где Binance ходит во внешний API:
+
+- **Адреса фейковые** (`TestAddressGenerator`): детерминированные от
+  (валюта, сеть, номер слота), не соответствуют ни одному реальному кошельку
+  (у форматов с контрольной суммой она намеренно неверна, у остальных есть
+  маркер `TEST`). Слот 0..49; каждая параллельная заявка получает свой слот,
+  повторный запрос с тем же `external_reference` возвращает ту же заявку и
+  тот же адрес (идемпотентность в сервисе, как у Binance).
+- **Поступление и исполнение вывода не определяются поллингом**:
+  `checkDeposits()`/`checkWithdrawals()` пусты. Оператор двигает статусы
+  вручную (`TestPanelSimulator`): кнопки «Test Panel: ...» в админке
+  gateway (видны только у заявок этой панели) или
+  `bin/console app:test-panel:confirm <uuid|external_reference> --status=completed [--amount=..]`
+  (старое имя `app:binance-test:confirm` — алиас). Симулятор вызывает те же
+  `applyStatusUpdate()`/`expire()`, что и реальные поллеры, поэтому колбек
+  уходит тем же путём. Доступные переходы — те, которые могут дать поллеры
+  Binance: депозит `awaiting_payment -> received|completed|expired`,
+  `received -> completed` (у Binance депозит не бывает `failed`); вывод
+  `submitted -> processing|completed|failed`, `processing -> completed|failed`.
+- Вывод ничего не отправляет: ответ панели — `submitted` с фейковым
+  референсом `TEST-WD-...`, `tx_hash` при завершении — `test-<hash>`.
+
+Подключение — как у любой панели: строка панели в админке (`Panels`) с кодом
+`binance_test`, названием «Test Panel» и галочкой `active`. Код остаётся
+`binance_test`, потому что он уже прописан в `gatewayPanel` методов Okean.
+`bin/console app:binance-test:install` (алиас `app:test-panel:install`)
+идемпотентно создаёт/обновляет такую строку: активная, валюты и сети
+копируются с панели `binance`, если она есть, иначе запасной список.
+Для доставки колбеков и истечения заявок нужны обычные воркеры
+(`messenger:consume async`, `app:payment-gateway:poll-deposits binance_test`).
+
 ---
 
 ## 3. API-контракт Okean ↔ payment-gateway

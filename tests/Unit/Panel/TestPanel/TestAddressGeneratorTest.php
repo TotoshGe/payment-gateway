@@ -2,10 +2,10 @@
 
 declare(strict_types=1);
 
-namespace App\Tests\Unit\Panel\BinanceTest;
+namespace App\Tests\Unit\Panel\TestPanel;
 
-use App\Panel\BinanceTest\AddressCodec;
-use App\Panel\BinanceTest\TestAddressGenerator;
+use App\Panel\TestPanel\AddressCodec;
+use App\Panel\TestPanel\TestAddressGenerator;
 use PHPUnit\Framework\Attributes\DataProvider;
 use PHPUnit\Framework\TestCase;
 
@@ -53,6 +53,26 @@ final class TestAddressGeneratorTest extends TestCase
         yield 'sol' => ['SOL', 'SOL'];
         yield 'fiat' => ['UAH', null];
         yield 'unknown' => ['XYZ', 'WEIRDNET'];
+    }
+
+    #[DataProvider('okeanNetworks')]
+    public function testEveryOkeanNetworkGetsAnAddressAndDistinctSlotsDiffer(string $currency, string $network): void
+    {
+        $slot0 = $this->generator->generate($currency, $network, 0);
+        $slot1 = $this->generator->generate($currency, $network, 1);
+
+        self::assertNotSame('', $slot0->address);
+        self::assertNotSame($slot0->address, $slot1->address);
+    }
+
+    /**
+     * @return iterable<string, array{string, string}>
+     */
+    public static function okeanNetworks(): iterable
+    {
+        foreach (['ARBITRUM', 'BSC', 'BTC', 'ETH', 'LTC', 'POLYGON', 'SOL', 'TON', 'TRX'] as $network) {
+            yield $network => ['USDT', $network];
+        }
     }
 
     public function testDifferentCurrencyOrNetworkGivesDifferentAddress(): void

@@ -7,8 +7,8 @@ namespace App\Command;
 use App\Entity\DepositRequest;
 use App\Entity\WithdrawalRequest;
 use App\Enum\PaymentRequestStatus;
-use App\Panel\BinanceTest\BinanceTestSimulationException;
-use App\Panel\BinanceTest\BinanceTestSimulator;
+use App\Panel\TestPanel\TestPanelSimulationException;
+use App\Panel\TestPanel\TestPanelSimulator;
 use App\Repository\DepositRequestRepository;
 use App\Repository\WithdrawalRequestRepository;
 use Symfony\Component\Console\Attribute\AsCommand;
@@ -21,17 +21,17 @@ use Symfony\Component\Console\Style\SymfonyStyle;
 use Symfony\Component\Uid\Uuid;
 
 #[AsCommand(
-    name: 'app:binance-test:confirm',
-    description: '[BINANCE TEST] Moves a deposit/withdrawal on the fake binance_test panel to a chosen status and notifies Okean.',
+    name: 'app:test-panel:confirm|app:binance-test:confirm',
+    description: '[TEST PANEL] Manually confirms a deposit/withdrawal on the Test Panel (code binance_test): moves it to a chosen status and notifies Okean.',
 )]
-class BinanceTestConfirmCommand extends Command
+class TestPanelConfirmCommand extends Command
 {
     private const STATUS_OPTIONS = ['received', 'processing', 'completed', 'failed', 'expired'];
 
     public function __construct(
         private readonly DepositRequestRepository $depositRequestRepository,
         private readonly WithdrawalRequestRepository $withdrawalRequestRepository,
-        private readonly BinanceTestSimulator $simulator,
+        private readonly TestPanelSimulator $simulator,
     ) {
         parent::__construct();
     }
@@ -39,7 +39,7 @@ class BinanceTestConfirmCommand extends Command
     protected function configure(): void
     {
         $this
-            ->addArgument('id', InputArgument::REQUIRED, 'Request UUID (or its external_reference) of a deposit or withdrawal on the binance_test panel')
+            ->addArgument('id', InputArgument::REQUIRED, 'Request UUID (or its external_reference) of a deposit or withdrawal on the Test Panel (binance_test)')
             ->addOption('status', 's', InputOption::VALUE_REQUIRED, 'Target status: '.implode('|', self::STATUS_OPTIONS), 'completed')
             ->addOption('amount', 'a', InputOption::VALUE_REQUIRED, 'Deposits only: confirmed amount (default: the expected amount)');
     }
@@ -47,7 +47,7 @@ class BinanceTestConfirmCommand extends Command
     protected function execute(InputInterface $input, OutputInterface $output): int
     {
         $io = new SymfonyStyle($input, $output);
-        $io->warning('BINANCE TEST PANEL - simulated status change, no real funds involved.');
+        $io->warning('TEST PANEL - manual status change, no real funds involved.');
 
         $status = PaymentRequestStatus::tryFrom((string) $input->getOption('status'));
         if (null === $status || !\in_array($status->value, self::STATUS_OPTIONS, true)) {
@@ -85,7 +85,7 @@ class BinanceTestConfirmCommand extends Command
                 $this->simulator->transitionWithdrawal($withdrawal, $status);
                 $io->success(sprintf('Withdrawal %s is now "%s".', $withdrawal->getId(), $withdrawal->getStatus()->value));
             }
-        } catch (BinanceTestSimulationException $exception) {
+        } catch (TestPanelSimulationException $exception) {
             $io->error($exception->getMessage());
 
             return Command::FAILURE;

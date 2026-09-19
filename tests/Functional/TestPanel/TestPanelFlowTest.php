@@ -2,15 +2,15 @@
 
 declare(strict_types=1);
 
-namespace App\Tests\Functional\BinanceTest;
+namespace App\Tests\Functional\TestPanel;
 
 use App\Entity\DepositRequest;
 use App\Entity\Panel;
 use App\Entity\WithdrawalRequest;
 use App\Enum\PanelWalletAddressStatus;
 use App\Enum\PaymentRequestStatus;
-use App\Panel\BinanceTest\BinanceTestSimulationException;
-use App\Panel\BinanceTest\BinanceTestSimulator;
+use App\Panel\TestPanel\TestPanelSimulationException;
+use App\Panel\TestPanel\TestPanelSimulator;
 use App\Repository\CallbackDeliveryRepository;
 use App\Repository\DepositRequestRepository;
 use App\Repository\PanelWalletAddressRepository;
@@ -22,36 +22,14 @@ use Symfony\Bundle\FrameworkBundle\Console\Application;
 use Symfony\Bundle\FrameworkBundle\KernelBrowser;
 use Symfony\Component\Console\Tester\CommandTester;
 
-final class BinanceTestPanelFlowTest extends FunctionalTestCase
+final class TestPanelFlowTest extends FunctionalTestCase
 {
     private const API_KEY = 'test_api_key';
-    private const FLAG = 'BINANCE_TEST_PANEL_ENABLED';
-
-    private string|false $originalFlag = false;
-
-    protected function setUp(): void
-    {
-        parent::setUp();
-        $this->originalFlag = getenv(self::FLAG);
-    }
-
-    protected function tearDown(): void
-    {
-        $this->setFlag(false === $this->originalFlag ? '1' : $this->originalFlag);
-        parent::tearDown();
-    }
-
-    private function setFlag(string $value): void
-    {
-        $_ENV[self::FLAG] = $_SERVER[self::FLAG] = $value;
-        putenv(self::FLAG.'='.$value);
-    }
-
     private function ensurePanel(EntityManagerInterface $em, string $code, bool $active = true): Panel
     {
         $panel = $em->getRepository(Panel::class)->findOneBy(['code' => $code]);
         if (null === $panel) {
-            $panel = new Panel($code, 'binance_test' === $code ? 'Binance Test' : 'Fake panel');
+            $panel = new Panel($code, 'binance_test' === $code ? 'Test Panel' : 'Fake panel');
             $em->persist($panel);
         }
         $panel->setActive($active);
@@ -83,7 +61,7 @@ final class BinanceTestPanelFlowTest extends FunctionalTestCase
         ], $expectedStatus);
     }
 
-    public function testDepositGetsFakeAddressAndTestMarkersAndIsIdempotent(): void
+    public function testDepositGetsFakeAddressWithoutAnyTestMarkersInTheResponseAndIsIdempotent(): void
     {
         $client = static::createClient();
         $this->ensurePanel(self::getContainer()->get(EntityManagerInterface::class), 'binance_test');
@@ -91,11 +69,13 @@ final class BinanceTestPanelFlowTest extends FunctionalTestCase
         $first = $this->createDeposit($client, 'bt-'.uniqid());
         self::assertSame('awaiting_payment', $first['status']);
         self::assertStringStartsWith('TTEST', $first['address']);
-        self::assertTrue($first['test_mode']);
-        self::assertStringContainsString('FAKE', $first['notice']);
+        self::assertArrayNotHasKey('test_mode', $first);
+        self::assertArrayNotHasKey('notice', $first);
 
         $client->request('GET', '/api/v1/deposits/'.$first['id'], server: ['HTTP_X_API_KEY' => self::API_KEY]);
-        self::assertTrue(json_decode($client->getResponse()->getContent(), true)['test_mode']);
+        $fetched = json_decode($client->getResponse()->getContent(), true);
+        self::assertArrayNotHasKey('test_mode', $fetched);
+        self::assertArrayNotHasKey('notice', $fetched);
 
         $reference = 'bt-idem-'.uniqid();
         $a = $this->createDeposit($client, $reference);
@@ -107,24 +87,7 @@ final class BinanceTestPanelFlowTest extends FunctionalTestCase
         self::assertNotSame($a['address'], $other['address'], 'a concurrent open request must not share an address');
     }
 
-    public function testRealPanelResponsesCarryNoTestMarkers(): void
-    {
-        $client = static::createClient();
-        $this->ensurePanel(self::getContainer()->get(EntityManagerInterface::class), 'fake');
-
-        $data = $this->post($client, '/api/v1/deposits', [
-            'external_reference' => 'real-'.uniqid(),
-            'panel' => 'fake',
-            'currency' => 'USDT',
-            'network' => 'TRC20',
-            'expected_amount' => '1',
-        ], 201);
-
-        self::assertArrayNotHasKey('test_mode', $data);
-        self::assertArrayNotHasKey('notice', $data);
-    }
-
-    public function testConfirmingDepositCompletesItReleasesAddressAndQueuesCallbackWithTestMode(): void
+    public function testConfirmingDepositCompletesItReleasesAddressAndQueuesCallbackWithoutTestMarkers(): void
     {
         $client = static::createClient();
         $container = self::getContainer();
@@ -132,7 +95,7 @@ final class BinanceTestPanelFlowTest extends FunctionalTestCase
         $created = $this->createDeposit($client, 'bt-confirm-'.uniqid());
 
         $deposit = $container->get(DepositRequestRepository::class)->find(\Symfony\Component\Uid\Uuid::fromString($created['id']));
-        $container->get(BinanceTestSimulator::class)->transitionDeposit($deposit, PaymentRequestStatus::COMPLETED, '99.50');
+        $container->get(TestPanelSimulator::class)->transitionDeposit($deposit, PaymentRequestStatus::COMPLETED, '99.50');
 
         $em = $container->get(EntityManagerInterface::class);
         $em->refresh($deposit);
@@ -145,7 +108,7 @@ final class BinanceTestPanelFlowTest extends FunctionalTestCase
         $deliveries = $container->get(CallbackDeliveryRepository::class)->findBy(['requestId' => $deposit->getId()]);
         self::assertCount(1, $deliveries);
         self::assertSame('deposit.received', $deliveries[0]->getEventType());
-        self::assertTrue($deliveries[0]->getPayload()['test_mode']);
+        self::assertArrayNotHasKey('test_mode', $deliveries[0]->getPayload());
         self::assertSame('99.50', $deliveries[0]->getPayload()['amount']);
     }
 
@@ -154,7 +117,7 @@ final class BinanceTestPanelFlowTest extends FunctionalTestCase
         $client = static::createClient();
         $container = self::getContainer();
         $this->ensurePanel($container->get(EntityManagerInterface::class), 'binance_test');
-        $simulator = $container->get(BinanceTestSimulator::class);
+        $simulator = $container->get(TestPanelSimulator::class);
         $repository = $container->get(DepositRequestRepository::class);
         $callbacks = $container->get(CallbackDeliveryRepository::class);
 
@@ -169,9 +132,12 @@ final class BinanceTestPanelFlowTest extends FunctionalTestCase
         self::assertSame('100.00', $received->getReceivedAmount(), 'defaults to the expected amount');
 
         $failed = $find($this->createDeposit($client, 'bt-fail-'.uniqid()));
-        $simulator->transitionDeposit($failed, PaymentRequestStatus::FAILED);
-        self::assertSame(PaymentRequestStatus::FAILED, $failed->getStatus());
-        self::assertSame('deposit.failed', $callbacks->findBy(['requestId' => $failed->getId()])[0]->getEventType());
+        try {
+            $simulator->transitionDeposit($failed, PaymentRequestStatus::FAILED);
+            self::fail('a deposit cannot fail on Binance, so it cannot on the Test Panel either');
+        } catch (TestPanelSimulationException) {
+        }
+        $simulator->transitionDeposit($failed, PaymentRequestStatus::COMPLETED);
 
         $expired = $find($this->createDeposit($client, 'bt-exp-'.uniqid()));
         $simulator->transitionDeposit($expired, PaymentRequestStatus::EXPIRED);
@@ -182,13 +148,14 @@ final class BinanceTestPanelFlowTest extends FunctionalTestCase
             try {
                 $simulator->transitionDeposit($terminal, PaymentRequestStatus::COMPLETED);
                 self::fail('a terminal deposit must not be movable');
-            } catch (BinanceTestSimulationException) {
+            } catch (TestPanelSimulationException) {
             }
         }
         self::assertCount(1, $callbacks->findBy(['requestId' => $failed->getId()]), 'no duplicate callback from the rejected transition');
+        self::assertSame(PaymentRequestStatus::COMPLETED, $failed->getStatus());
 
         $fresh = $find($this->createDeposit($client, 'bt-bad-'.uniqid()));
-        $this->expectException(BinanceTestSimulationException::class);
+        $this->expectException(TestPanelSimulationException::class);
         $simulator->transitionDeposit($fresh, PaymentRequestStatus::PROCESSING);
     }
 
@@ -209,14 +176,15 @@ final class BinanceTestPanelFlowTest extends FunctionalTestCase
 
         $created = $this->post($client, '/api/v1/withdrawals', $body('bt-wd-'.uniqid()), 201);
         self::assertSame('submitted', $created['status']);
-        self::assertTrue($created['test_mode']);
+        self::assertArrayNotHasKey('test_mode', $created);
+        self::assertArrayNotHasKey('notice', $created);
 
         $repository = $container->get(WithdrawalRequestRepository::class);
         /** @var WithdrawalRequest $withdrawal */
         $withdrawal = $repository->find(\Symfony\Component\Uid\Uuid::fromString($created['id']));
         self::assertStringStartsWith('TEST-WD-', (string) $withdrawal->getPanelWithdrawalReference());
 
-        $simulator = $container->get(BinanceTestSimulator::class);
+        $simulator = $container->get(TestPanelSimulator::class);
         $simulator->transitionWithdrawal($withdrawal, PaymentRequestStatus::PROCESSING);
         $simulator->transitionWithdrawal($withdrawal, PaymentRequestStatus::COMPLETED);
         self::assertSame(PaymentRequestStatus::COMPLETED, $withdrawal->getStatus());
@@ -225,13 +193,13 @@ final class BinanceTestPanelFlowTest extends FunctionalTestCase
         $deliveries = $container->get(CallbackDeliveryRepository::class)->findBy(['requestId' => $withdrawal->getId()]);
         self::assertCount(1, $deliveries);
         self::assertSame('withdrawal.completed', $deliveries[0]->getEventType());
-        self::assertTrue($deliveries[0]->getPayload()['test_mode']);
+        self::assertArrayNotHasKey('test_mode', $deliveries[0]->getPayload());
 
         $second = $this->post($client, '/api/v1/withdrawals', $body('bt-wd2-'.uniqid()), 201);
         $failing = $repository->find(\Symfony\Component\Uid\Uuid::fromString($second['id']));
         $simulator->transitionWithdrawal($failing, PaymentRequestStatus::FAILED);
         self::assertSame(PaymentRequestStatus::FAILED, $failing->getStatus());
-        self::assertStringStartsWith('TEST:', (string) $failing->getFailureReason());
+        self::assertNotSame('', (string) $failing->getFailureReason());
         self::assertSame('withdrawal.failed', $container->get(CallbackDeliveryRepository::class)->findBy(['requestId' => $failing->getId()])[0]->getEventType());
     }
 
@@ -242,35 +210,13 @@ final class BinanceTestPanelFlowTest extends FunctionalTestCase
         $this->ensurePanel($container->get(EntityManagerInterface::class), 'fake');
         $result = $container->get(DepositRequestService::class)->createOrGetExisting('real-'.uniqid(), 'fake', 'USDT', 'TRC20', '5');
 
-        self::assertSame([], $container->get(BinanceTestSimulator::class)->availableDepositTargets($result['request']));
+        self::assertSame([], $container->get(TestPanelSimulator::class)->availableDepositTargets($result['request']));
 
-        $this->expectException(BinanceTestSimulationException::class);
-        $container->get(BinanceTestSimulator::class)->transitionDeposit($result['request'], PaymentRequestStatus::COMPLETED);
+        $this->expectException(TestPanelSimulationException::class);
+        $container->get(TestPanelSimulator::class)->transitionDeposit($result['request'], PaymentRequestStatus::COMPLETED);
     }
 
-    public function testDisabledFlagMakesPanelUnavailableEvenIfRowIsActive(): void
-    {
-        $this->setFlag('0');
-        $client = static::createClient();
-        $container = self::getContainer();
-        $this->ensurePanel($container->get(EntityManagerInterface::class), 'binance_test', active: true);
-
-        $data = $this->createDeposit($client, 'bt-off-'.uniqid(), expectedStatus: 422);
-        self::assertStringContainsString('No active panel', $data['error']);
-        self::assertSame(0, $container->get(DepositRequestRepository::class)->count([]), 'no request row may be created');
-
-        $this->post($client, '/api/v1/withdrawals', [
-            'external_reference' => 'bt-off-wd-'.uniqid(),
-            'panel' => 'binance_test',
-            'currency' => 'USDT',
-            'network' => 'TRC20',
-            'amount' => '1',
-            'destination_address' => 'Tx',
-        ], 422);
-        self::assertSame(0, $container->get(WithdrawalRequestRepository::class)->count([]));
-    }
-
-    public function testInactivePanelRowIsUnavailableEvenIfFlagIsOn(): void
+    public function testInactivePanelRowIsUnavailable(): void
     {
         $client = static::createClient();
         $this->ensurePanel(self::getContainer()->get(EntityManagerInterface::class), 'binance_test', active: false);
@@ -278,22 +224,42 @@ final class BinanceTestPanelFlowTest extends FunctionalTestCase
         $this->createDeposit($client, 'bt-inactive-'.uniqid(), expectedStatus: 422);
     }
 
-    public function testDisabledFlagBlocksSimulationOfAlreadyExistingRequests(): void
+    public function testOldConfirmCommandNameIsAnAlias(): void
     {
-        $client = static::createClient();
-        $container = self::getContainer();
-        $this->ensurePanel($container->get(EntityManagerInterface::class), 'binance_test');
-        $created = $this->createDeposit($client, 'bt-later-off-'.uniqid());
-        self::ensureKernelShutdown();
+        static::createClient();
+        $application = new Application(self::$kernel);
 
-        $this->setFlag('0');
-        self::bootKernel();
-        $container = self::getContainer();
-        $deposit = $container->get(DepositRequestRepository::class)->find(\Symfony\Component\Uid\Uuid::fromString($created['id']));
+        self::assertSame($application->find('app:test-panel:confirm'), $application->find('app:binance-test:confirm'));
+    }
 
-        self::assertSame([], $container->get(BinanceTestSimulator::class)->availableDepositTargets($deposit));
-        $this->expectException(BinanceTestSimulationException::class);
-        $container->get(BinanceTestSimulator::class)->transitionDeposit($deposit, PaymentRequestStatus::COMPLETED);
+    public function testInstallCommandIsIdempotentAndActivatesPanelCopyingBinanceCurrencies(): void
+    {
+        static::createClient();
+        $em = self::getContainer()->get(EntityManagerInterface::class);
+        $existing = $em->getRepository(Panel::class)->findOneBy(['code' => 'binance_test']);
+        if (null !== $existing) {
+            $em->remove($existing);
+            $em->flush();
+        }
+        $binance = $em->getRepository(Panel::class)->findOneBy(['code' => 'binance']);
+        if (null === $binance) {
+            $binance = new Panel('binance', 'Binance');
+            $em->persist($binance);
+        }
+        $binance->setSupportedCurrencies([['currency' => 'USDT', 'network' => 'TON']]);
+        $em->flush();
+
+        $tester = new CommandTester((new Application(self::$kernel))->find('app:binance-test:install'));
+        $tester->execute([]);
+        $tester->execute([]);
+        self::assertSame(0, $tester->getStatusCode());
+
+        $em->clear();
+        $panels = $em->getRepository(Panel::class)->findBy(['code' => 'binance_test']);
+        self::assertCount(1, $panels);
+        self::assertTrue($panels[0]->isActive());
+        self::assertSame('Test Panel', $panels[0]->getLabel());
+        self::assertSame([['currency' => 'USDT', 'network' => 'TON']], $panels[0]->getSupportedCurrencies());
     }
 
     public function testConfirmCommandByUuidAndByExternalReference(): void
@@ -304,11 +270,11 @@ final class BinanceTestPanelFlowTest extends FunctionalTestCase
         $reference = 'bt-cmd-'.uniqid();
         $created = $this->createDeposit($client, $reference);
 
-        $tester = new CommandTester((new Application(self::$kernel))->find('app:binance-test:confirm'));
+        $tester = new CommandTester((new Application(self::$kernel))->find('app:test-panel:confirm'));
 
         $tester->execute(['id' => $created['id'], '--status' => 'received']);
         self::assertSame(0, $tester->getStatusCode());
-        self::assertStringContainsString('BINANCE TEST', $tester->getDisplay());
+        self::assertStringContainsString('TEST PANEL', $tester->getDisplay());
 
         $tester->execute(['id' => $reference, '--amount' => '42']);
         self::assertSame(0, $tester->getStatusCode());
@@ -326,21 +292,5 @@ final class BinanceTestPanelFlowTest extends FunctionalTestCase
 
         $tester->execute(['id' => $created['id'], '--status' => 'bogus']);
         self::assertSame(2, $tester->getStatusCode());
-    }
-
-    public function testConfirmCommandRefusesWhenFlagIsOff(): void
-    {
-        $client = static::createClient();
-        $this->ensurePanel(self::getContainer()->get(EntityManagerInterface::class), 'binance_test');
-        $created = $this->createDeposit($client, 'bt-cmd-off-'.uniqid());
-        self::ensureKernelShutdown();
-
-        $this->setFlag('0');
-        self::bootKernel();
-        $tester = new CommandTester((new Application(self::$kernel))->find('app:binance-test:confirm'));
-        $tester->execute(['id' => $created['id']]);
-
-        self::assertSame(1, $tester->getStatusCode());
-        self::assertStringContainsString('disabled', $tester->getDisplay());
     }
 }

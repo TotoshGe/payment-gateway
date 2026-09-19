@@ -4,7 +4,6 @@ declare(strict_types=1);
 
 namespace App\Controller\Admin;
 
-use App\Panel\BinanceTest\BinanceTestPanel;
 use EasyCorp\Bundle\EasyAdminBundle\Attribute\AdminDashboard;
 use EasyCorp\Bundle\EasyAdminBundle\Config\Dashboard;
 use EasyCorp\Bundle\EasyAdminBundle\Config\MenuItem;
@@ -17,7 +16,6 @@ final class DashboardController extends AbstractDashboardController
 {
     public function __construct(
         private readonly AdminUrlGenerator $adminUrlGenerator,
-        private readonly BinanceTestPanel $binanceTestPanel,
     ) {
     }
 
@@ -29,7 +27,7 @@ final class DashboardController extends AbstractDashboardController
     public function configureDashboard(): Dashboard
     {
         return Dashboard::new()
-            ->setTitle($this->binanceTestPanel->isEnabled() ? 'payment-gateway <small style="color:#c00">[BINANCE TEST PANEL ON - FAKE ADDRESSES]</small>' : 'payment-gateway');
+            ->setTitle('payment-gateway');
     }
 
     public function configureMenuItems(): iterable

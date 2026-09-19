@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Tests\Functional\BinanceTest;
+namespace App\Tests\Functional\TestPanel;
 
 use App\Controller\Admin\DepositRequestCrudController;
 use App\Controller\Admin\WithdrawalRequestCrudController;
@@ -20,15 +20,15 @@ use Symfony\Component\DomCrawler\Crawler;
 
 /**
  * Renders the real admin pages through a logged-in session and clicks the
- * TEST buttons, rather than trusting the action configuration by eye.
+ * Test Panel buttons, rather than trusting the action configuration by eye.
  */
-final class BinanceTestAdminTest extends FunctionalTestCase
+final class TestPanelAdminTest extends FunctionalTestCase
 {
     private function loginAsAdmin(KernelBrowser $client, EntityManagerInterface $em): void
     {
-        $admin = $em->getRepository(AdminUser::class)->findOneBy(['email' => 'binance-test-admin@example.com']);
+        $admin = $em->getRepository(AdminUser::class)->findOneBy(['email' => 'test-panel-admin@example.com']);
         if (null === $admin) {
-            $admin = new AdminUser('binance-test-admin@example.com');
+            $admin = new AdminUser('test-panel-admin@example.com');
             $admin->setPassword('unused');
             $em->persist($admin);
             $em->flush();
@@ -50,12 +50,12 @@ final class BinanceTestAdminTest extends FunctionalTestCase
         return self::getContainer()->get(AdminUrlGenerator::class)->setController($controller)->setAction('index')->generateUrl();
     }
 
-    public function testTestButtonsAppearOnlyForBinanceTestRequestsAndConfirmWorks(): void
+    public function testButtonsAppearOnlyForTestPanelRequestsAndConfirmWorks(): void
     {
         $client = static::createClient();
         $em = self::getContainer()->get(EntityManagerInterface::class);
         $this->loginAsAdmin($client, $em);
-        $this->panel($em, 'binance_test', 'Binance Test');
+        $this->panel($em, 'binance_test', 'Test Panel');
         $this->panel($em, 'fake', 'Fake panel');
 
         $service = self::getContainer()->get(DepositRequestService::class);
@@ -65,15 +65,17 @@ final class BinanceTestAdminTest extends FunctionalTestCase
         $crawler = $client->request('GET', $this->indexUrl(DepositRequestCrudController::class));
         self::assertResponseIsSuccessful();
 
-        self::assertStringContainsString('Binance Test [TEST]', $crawler->text());
+        self::assertStringContainsString('Test Panel', $crawler->text());
+        self::assertStringNotContainsString('[TEST]', $crawler->text());
         $confirmForms = $crawler->filter('form[action*="test-confirm"]');
-        self::assertCount(1, $confirmForms, 'only the binance_test row gets the confirm button, not the other panel');
-        self::assertStringContainsString('TEST: confirm payment', $crawler->filter('a[data-ea-action-form-id="'.$confirmForms->attr('id').'"]')->text());
-        self::assertCount(1, $crawler->filter('form[action*="test-expire"]'));
+        self::assertCount(1, $confirmForms, 'only the test panel row gets the confirm button, not the other panel');
+        self::assertStringContainsString('Test Panel: confirm payment', $crawler->filter('a[data-ea-action-form-id="'.$confirmForms->attr('id').'"]')->text());
+        self::assertCount(1, $crawler->filter('form[action*="test-received"]'));
+        self::assertCount(0, $crawler->filter('form[action*="test-fail"]'), 'deposits cannot fail on Binance, so neither here');
 
         $client->submit($confirmForms->form());
         $client->followRedirect();
-        self::assertSelectorTextContains('body', '[BINANCE TEST] Deposit moved to "completed"');
+        self::assertSelectorTextContains('body', '[TEST PANEL] Deposit moved to "completed"');
 
         $em->clear();
         $reloaded = self::getContainer()->get(DepositRequestRepository::class)->find($testDeposit->getId());
@@ -88,7 +90,7 @@ final class BinanceTestAdminTest extends FunctionalTestCase
         $client = static::createClient();
         $em = self::getContainer()->get(EntityManagerInterface::class);
         $this->loginAsAdmin($client, $em);
-        $this->panel($em, 'binance_test', 'Binance Test');
+        $this->panel($em, 'binance_test', 'Test Panel');
 
         $withdrawal = self::getContainer()->get(WithdrawalRequestService::class)
             ->createOrGetExisting('admin-wd-'.uniqid(), 'binance_test', 'USDT', 'TRC20', '5', 'TSomeDestination', null)['request'];
@@ -100,20 +102,21 @@ final class BinanceTestAdminTest extends FunctionalTestCase
 
         $client->submit($form->form());
         $client->followRedirect();
-        self::assertSelectorTextContains('body', '[BINANCE TEST] Withdrawal moved to "completed"');
+        self::assertSelectorTextContains('body', '[TEST PANEL] Withdrawal moved to "completed"');
 
         $em->clear();
         $reloaded = $em->getRepository($withdrawal::class)->find($withdrawal->getId());
         self::assertSame(PaymentRequestStatus::COMPLETED, $reloaded->getStatus());
     }
 
-    public function testDashboardShowsBannerWhileFlagIsOn(): void
+    public function testDashboardHasNoTestBanner(): void
     {
         $client = static::createClient();
         $this->loginAsAdmin($client, self::getContainer()->get(EntityManagerInterface::class));
 
         $crawler = $client->request('GET', $this->indexUrl(DepositRequestCrudController::class));
 
-        self::assertStringContainsString('BINANCE TEST PANEL ON', $crawler->html());
+        self::assertStringNotContainsString('TEST PANEL ON', $crawler->html());
+        self::assertStringNotContainsString('FAKE ADDRESSES', $crawler->html());
     }
 }

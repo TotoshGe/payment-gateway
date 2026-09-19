@@ -6,7 +6,6 @@ namespace App\Controller\Api;
 
 use App\Dto\Api\CreateDepositRequestDto;
 use App\Entity\DepositRequest;
-use App\Panel\BinanceTest\BinanceTestPanel;
 use App\Enum\PaymentRequestStatus;
 use App\Repository\DepositRequestRepository;
 use App\Service\DepositRequestService;
@@ -92,7 +91,7 @@ final class DepositController
      */
     private static function serialize(DepositRequest $depositRequest): array
     {
-        $data = [
+        return [
             'id' => (string) $depositRequest->getId(),
             'external_reference' => $depositRequest->getExternalReference(),
             'status' => $depositRequest->getStatus()->value,
@@ -104,13 +103,6 @@ final class DepositController
             'address_tag' => $depositRequest->getAddressTag(),
             'expires_at' => $depositRequest->getExpiresAt()->format(\DateTimeInterface::ATOM),
         ];
-
-        if ($depositRequest->getPanel()->isTestPanel()) {
-            $data['test_mode'] = true;
-            $data['notice'] = BinanceTestPanel::NOTICE;
-        }
-
-        return $data;
     }
 
     /**

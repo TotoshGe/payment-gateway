@@ -45,7 +45,7 @@ final class DepositRequestService
         }
 
         $panel = $this->panelRepository->findOneByCode($panelCode);
-        if (null === $panel || !$panel->isActive() || !$this->panelRegistry->isAvailable($panel)) {
+        if (null === $panel || !$panel->isActive()) {
             throw new PanelNotFoundException(sprintf('No active panel "%s".', $panelCode));
         }
 

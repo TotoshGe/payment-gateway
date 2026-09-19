@@ -6,8 +6,8 @@ namespace App\Controller\Admin;
 
 use App\Entity\DepositRequest;
 use App\Enum\PaymentRequestStatus;
-use App\Panel\BinanceTest\BinanceTestSimulationException;
-use App\Panel\BinanceTest\BinanceTestSimulator;
+use App\Panel\TestPanel\TestPanelSimulationException;
+use App\Panel\TestPanel\TestPanelSimulator;
 use App\Service\CallbackDispatcher;
 use App\Service\DepositRequestService;
 use Doctrine\ORM\EntityManagerInterface;
@@ -33,7 +33,7 @@ final class DepositRequestCrudController extends AbstractCrudController
         private readonly DepositRequestService $depositRequestService,
         private readonly CallbackDispatcher $callbackDispatcher,
         private readonly EntityManagerInterface $entityManager,
-        private readonly BinanceTestSimulator $binanceTestSimulator,
+        private readonly TestPanelSimulator $testPanelSimulator,
     ) {
     }
 
@@ -86,16 +86,14 @@ final class DepositRequestCrudController extends AbstractCrudController
             ->add(Crud::PAGE_DETAIL, $resendCallback);
 
         $testActions = [
-            'testReceived' => ['TEST: mark received', PaymentRequestStatus::RECEIVED],
-            'testConfirm' => ['TEST: confirm payment', PaymentRequestStatus::COMPLETED],
-            'testFail' => ['TEST: fail', PaymentRequestStatus::FAILED],
-            'testExpire' => ['TEST: expire', PaymentRequestStatus::EXPIRED],
+            'testReceived' => ['Test Panel: mark received', PaymentRequestStatus::RECEIVED],
+            'testConfirm' => ['Test Panel: confirm payment', PaymentRequestStatus::COMPLETED],
         ];
         foreach ($testActions as $method => [$label, $target]) {
             $action = Action::new($method, $label)
                 ->linkToCrudAction($method)
                 ->renderAsForm()
-                ->displayIf(fn (DepositRequest $d) => \in_array($target, $this->binanceTestSimulator->availableDepositTargets($d), true));
+                ->displayIf(fn (DepositRequest $d) => \in_array($target, $this->testPanelSimulator->availableDepositTargets($d), true));
 
             $actions = $actions->add(Crud::PAGE_INDEX, $action)->add(Crud::PAGE_DETAIL, $action);
         }
@@ -115,28 +113,16 @@ final class DepositRequestCrudController extends AbstractCrudController
         return $this->simulate($context, PaymentRequestStatus::COMPLETED);
     }
 
-    #[AdminRoute(path: '/{entityId}/test-fail', name: '_test_fail')]
-    public function testFail(AdminContext $context): RedirectResponse
-    {
-        return $this->simulate($context, PaymentRequestStatus::FAILED);
-    }
-
-    #[AdminRoute(path: '/{entityId}/test-expire', name: '_test_expire')]
-    public function testExpire(AdminContext $context): RedirectResponse
-    {
-        return $this->simulate($context, PaymentRequestStatus::EXPIRED);
-    }
-
     private function simulate(AdminContext $context, PaymentRequestStatus $target): RedirectResponse
     {
         /** @var DepositRequest $depositRequest */
         $depositRequest = $context->getEntity()->getInstance();
 
         try {
-            $this->binanceTestSimulator->transitionDeposit($depositRequest, $target);
-            $this->addFlash('success', sprintf('[BINANCE TEST] Deposit moved to "%s" (simulated; Okean is called back for terminal statuses).', $target->value));
-        } catch (BinanceTestSimulationException $exception) {
-            $this->addFlash('danger', '[BINANCE TEST] '.$exception->getMessage());
+            $this->testPanelSimulator->transitionDeposit($depositRequest, $target);
+            $this->addFlash('success', sprintf('[TEST PANEL] Deposit moved to "%s" (manual; Okean is called back for terminal statuses).', $target->value));
+        } catch (TestPanelSimulationException $exception) {
+            $this->addFlash('danger', '[TEST PANEL] '.$exception->getMessage());
         }
 
         return $this->redirect($context->getRequest()->headers->get('referer') ?? '/admin');

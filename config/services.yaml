@@ -11,9 +11,6 @@ parameters:
     app.okean_callback_url: '%env(OKEAN_CALLBACK_URL)%'
     app.okean_callback_secret: '%env(OKEAN_CALLBACK_SECRET)%'
     app.panel_credentials_key: '%env(PANEL_CREDENTIALS_KEY)%'
-    # Off unless explicitly set truthy; the default keeps a deploy that forgot the variable safe.
-    env(BINANCE_TEST_PANEL_ENABLED): '0'
-    app.binance_test_panel_enabled: '%env(bool:BINANCE_TEST_PANEL_ENABLED)%'
     app.deposit_address_ttl_minutes: 90
     app.deposit_poll_interval_seconds: 15
     app.withdrawal_poll_interval_seconds: 60
@@ -41,10 +38,6 @@ services:
         App\Panel\PanelInterface:
             tags: ['app.panel_driver']
 
-    App\Panel\BinanceTest\BinanceTestPanel:
-        arguments:
-            $enabled: '%app.binance_test_panel_enabled%'
-
     App\Security\ApiKeyAuthenticator:
         arguments:
             $apiKey: '%app.payment_gateway_api_key%'
@@ -70,6 +63,17 @@ services:
 
 when@test:
     services:
+        App\Tests\Fixture\ScriptedHttpClient:
+            public: true
+
+        App\Panel\Binance\BinancePanel:
+            autowire: true
+            autoconfigure: true
+            public: true
+            arguments:
+                $httpClient: '@App\Tests\Fixture\ScriptedHttpClient'
+            tags: ['app.panel_driver']
+
         App\Tests\Fixture\FakePanel:
             autowire: true
             autoconfigure: true

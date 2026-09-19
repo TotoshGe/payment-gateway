@@ -6,7 +6,6 @@ namespace App\Controller\Api;
 
 use App\Dto\Api\CreateWithdrawalRequestDto;
 use App\Entity\WithdrawalRequest;
-use App\Panel\BinanceTest\BinanceTestPanel;
 use App\Enum\PaymentRequestStatus;
 use App\Repository\WithdrawalRequestRepository;
 use App\Service\Exception\PanelNotFoundException;
@@ -91,7 +90,7 @@ final class WithdrawalController
      */
     private static function serialize(WithdrawalRequest $withdrawalRequest): array
     {
-        $data = [
+        return [
             'id' => (string) $withdrawalRequest->getId(),
             'external_reference' => $withdrawalRequest->getExternalReference(),
             'status' => $withdrawalRequest->getStatus()->value,
@@ -101,13 +100,6 @@ final class WithdrawalController
             'destination_address' => $withdrawalRequest->getDestinationAddress(),
             'tx_hash' => $withdrawalRequest->getTxHash(),
         ];
-
-        if ($withdrawalRequest->getPanel()->isTestPanel()) {
-            $data['test_mode'] = true;
-            $data['notice'] = BinanceTestPanel::NOTICE;
-        }
-
-        return $data;
     }
 
     /**

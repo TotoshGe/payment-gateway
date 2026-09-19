@@ -2,7 +2,7 @@
 
 declare(strict_types=1);
 
-namespace App\Panel\BinanceTest;
+namespace App\Panel\TestPanel;
 
 /**
  * Checksum validators used only to *prove* that generated test addresses are

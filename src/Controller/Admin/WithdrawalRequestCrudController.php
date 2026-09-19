@@ -6,8 +6,8 @@ namespace App\Controller\Admin;
 
 use App\Entity\WithdrawalRequest;
 use App\Enum\PaymentRequestStatus;
-use App\Panel\BinanceTest\BinanceTestSimulationException;
-use App\Panel\BinanceTest\BinanceTestSimulator;
+use App\Panel\TestPanel\TestPanelSimulationException;
+use App\Panel\TestPanel\TestPanelSimulator;
 use App\Panel\Dto\WithdrawalExecutionRequest;
 use App\Panel\Exception\PanelException;
 use App\Panel\PanelRegistry;
@@ -33,7 +33,7 @@ final class WithdrawalRequestCrudController extends AbstractCrudController
         private readonly CallbackDispatcher $callbackDispatcher,
         private readonly EntityManagerInterface $entityManager,
         private readonly LoggerInterface $logger,
-        private readonly BinanceTestSimulator $binanceTestSimulator,
+        private readonly TestPanelSimulator $testPanelSimulator,
     ) {
     }
 
@@ -85,15 +85,15 @@ final class WithdrawalRequestCrudController extends AbstractCrudController
             ->add(Crud::PAGE_DETAIL, $resendCallback);
 
         $testActions = [
-            'testProcessing' => ['TEST: mark processing', PaymentRequestStatus::PROCESSING],
-            'testConfirm' => ['TEST: confirm withdrawal', PaymentRequestStatus::COMPLETED],
-            'testFail' => ['TEST: fail', PaymentRequestStatus::FAILED],
+            'testProcessing' => ['Test Panel: mark processing', PaymentRequestStatus::PROCESSING],
+            'testConfirm' => ['Test Panel: confirm withdrawal', PaymentRequestStatus::COMPLETED],
+            'testFail' => ['Test Panel: fail', PaymentRequestStatus::FAILED],
         ];
         foreach ($testActions as $method => [$label, $target]) {
             $action = Action::new($method, $label)
                 ->linkToCrudAction($method)
                 ->renderAsForm()
-                ->displayIf(fn (WithdrawalRequest $w) => \in_array($target, $this->binanceTestSimulator->availableWithdrawalTargets($w), true));
+                ->displayIf(fn (WithdrawalRequest $w) => \in_array($target, $this->testPanelSimulator->availableWithdrawalTargets($w), true));
 
             $actions = $actions->add(Crud::PAGE_INDEX, $action)->add(Crud::PAGE_DETAIL, $action);
         }
@@ -125,10 +125,10 @@ final class WithdrawalRequestCrudController extends AbstractCrudController
         $withdrawalRequest = $context->getEntity()->getInstance();
 
         try {
-            $this->binanceTestSimulator->transitionWithdrawal($withdrawalRequest, $target);
-            $this->addFlash('success', sprintf('[BINANCE TEST] Withdrawal moved to "%s" (simulated; nothing was sent; Okean is called back for terminal statuses).', $target->value));
-        } catch (BinanceTestSimulationException $exception) {
-            $this->addFlash('danger', '[BINANCE TEST] '.$exception->getMessage());
+            $this->testPanelSimulator->transitionWithdrawal($withdrawalRequest, $target);
+            $this->addFlash('success', sprintf('[TEST PANEL] Withdrawal moved to "%s" (manual; nothing was sent; Okean is called back for terminal statuses).', $target->value));
+        } catch (TestPanelSimulationException $exception) {
+            $this->addFlash('danger', '[TEST PANEL] '.$exception->getMessage());
         }
 
         return $this->redirect($context->getRequest()->headers->get('referer') ?? '/admin');

@@ -5,7 +5,6 @@ declare(strict_types=1);
 namespace App\Panel;
 
 use App\Entity\Panel;
-use App\Panel\Exception\PanelDisabledException;
 use Symfony\Component\DependencyInjection\Attribute\AutowireIterator;
 
 /**
@@ -36,22 +35,6 @@ final class PanelRegistry
             throw new \RuntimeException(sprintf('No panel driver registered for panel code "%s".', $panel->getCode()));
         }
 
-        if ($driver instanceof GatedPanelInterface && !$driver->isEnabled()) {
-            throw new PanelDisabledException(sprintf('Panel "%s" is disabled.', $panel->getCode()));
-        }
-
         return $driver;
-    }
-
-    /**
-     * False only for a gated panel (e.g. binance_test) whose env flag is
-     * off. Panels without a registered driver keep the pre-existing
-     * behaviour (this returns true; getDriverFor() then fails as before).
-     */
-    public function isAvailable(Panel $panel): bool
-    {
-        $driver = $this->driversByCode[$panel->getCode()] ?? null;
-
-        return !($driver instanceof GatedPanelInterface) || $driver->isEnabled();
     }
 }
