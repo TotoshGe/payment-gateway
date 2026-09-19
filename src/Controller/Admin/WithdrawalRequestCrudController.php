@@ -6,6 +6,8 @@ namespace App\Controller\Admin;
 
 use App\Entity\WithdrawalRequest;
 use App\Enum\PaymentRequestStatus;
+use App\Panel\BinanceTest\BinanceTestSimulationException;
+use App\Panel\BinanceTest\BinanceTestSimulator;
 use App\Panel\Dto\WithdrawalExecutionRequest;
 use App\Panel\Exception\PanelException;
 use App\Panel\PanelRegistry;
@@ -31,6 +33,7 @@ final class WithdrawalRequestCrudController extends AbstractCrudController
         private readonly CallbackDispatcher $callbackDispatcher,
         private readonly EntityManagerInterface $entityManager,
         private readonly LoggerInterface $logger,
+        private readonly BinanceTestSimulator $binanceTestSimulator,
     ) {
     }
 
@@ -75,11 +78,60 @@ final class WithdrawalRequestCrudController extends AbstractCrudController
             ->linkToCrudAction('resendCallback')
             ->displayIf(static fn (WithdrawalRequest $w) => $w->getStatus()->isTerminal());
 
-        return $actions
+        $actions = $actions
             ->add(Crud::PAGE_INDEX, $retry)
             ->add(Crud::PAGE_DETAIL, $retry)
             ->add(Crud::PAGE_INDEX, $resendCallback)
             ->add(Crud::PAGE_DETAIL, $resendCallback);
+
+        $testActions = [
+            'testProcessing' => ['TEST: mark processing', PaymentRequestStatus::PROCESSING],
+            'testConfirm' => ['TEST: confirm withdrawal', PaymentRequestStatus::COMPLETED],
+            'testFail' => ['TEST: fail', PaymentRequestStatus::FAILED],
+        ];
+        foreach ($testActions as $method => [$label, $target]) {
+            $action = Action::new($method, $label)
+                ->linkToCrudAction($method)
+                ->renderAsForm()
+                ->displayIf(fn (WithdrawalRequest $w) => \in_array($target, $this->binanceTestSimulator->availableWithdrawalTargets($w), true));
+
+            $actions = $actions->add(Crud::PAGE_INDEX, $action)->add(Crud::PAGE_DETAIL, $action);
+        }
+
+        return $actions;
+    }
+
+    #[AdminRoute(path: '/{entityId}/test-processing', name: '_test_processing')]
+    public function testProcessing(AdminContext $context): RedirectResponse
+    {
+        return $this->simulate($context, PaymentRequestStatus::PROCESSING);
+    }
+
+    #[AdminRoute(path: '/{entityId}/test-confirm', name: '_test_confirm')]
+    public function testConfirm(AdminContext $context): RedirectResponse
+    {
+        return $this->simulate($context, PaymentRequestStatus::COMPLETED);
+    }
+
+    #[AdminRoute(path: '/{entityId}/test-fail', name: '_test_fail')]
+    public function testFail(AdminContext $context): RedirectResponse
+    {
+        return $this->simulate($context, PaymentRequestStatus::FAILED);
+    }
+
+    private function simulate(AdminContext $context, PaymentRequestStatus $target): RedirectResponse
+    {
+        /** @var WithdrawalRequest $withdrawalRequest */
+        $withdrawalRequest = $context->getEntity()->getInstance();
+
+        try {
+            $this->binanceTestSimulator->transitionWithdrawal($withdrawalRequest, $target);
+            $this->addFlash('success', sprintf('[BINANCE TEST] Withdrawal moved to "%s" (simulated; nothing was sent; Okean is called back for terminal statuses).', $target->value));
+        } catch (BinanceTestSimulationException $exception) {
+            $this->addFlash('danger', '[BINANCE TEST] '.$exception->getMessage());
+        }
+
+        return $this->redirect($context->getRequest()->headers->get('referer') ?? '/admin');
     }
 
     /**
@@ -95,9 +147,9 @@ final class WithdrawalRequestCrudController extends AbstractCrudController
         /** @var WithdrawalRequest $withdrawalRequest */
         $withdrawalRequest = $context->getEntity()->getInstance();
         $panel = $withdrawalRequest->getPanel();
-        $driver = $this->panelRegistry->getDriverFor($panel);
 
         try {
+            $driver = $this->panelRegistry->getDriverFor($panel);
             $result = $driver->executeWithdrawal($panel, new WithdrawalExecutionRequest(
                 currency: $withdrawalRequest->getCurrency(),
                 network: $withdrawalRequest->getNetwork(),

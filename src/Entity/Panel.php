@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Entity;
 
+use App\Panel\BinanceTest\BinanceTestPanel;
 use App\Repository\PanelRepository;
 use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
@@ -247,8 +248,13 @@ class Panel
         return $this;
     }
 
+    public function isTestPanel(): bool
+    {
+        return BinanceTestPanel::CODE === $this->code;
+    }
+
     public function __toString(): string
     {
-        return $this->label;
+        return $this->isTestPanel() ? $this->label.' [TEST]' : $this->label;
     }
 }

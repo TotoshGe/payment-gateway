@@ -6,6 +6,7 @@ namespace App\Service;
 
 use App\Entity\DepositRequest;
 use App\Enum\PaymentRequestStatus;
+use App\Panel\PanelRegistry;
 use App\Repository\DepositRequestRepository;
 use App\Repository\PanelRepository;
 use App\Service\Exception\PanelNotFoundException;
@@ -16,6 +17,7 @@ final class DepositRequestService
     public function __construct(
         private readonly DepositRequestRepository $depositRequestRepository,
         private readonly PanelRepository $panelRepository,
+        private readonly PanelRegistry $panelRegistry,
         private readonly WalletAddressPoolService $walletAddressPoolService,
         private readonly CallbackDispatcher $callbackDispatcher,
         private readonly EntityManagerInterface $entityManager,
@@ -43,7 +45,7 @@ final class DepositRequestService
         }
 
         $panel = $this->panelRepository->findOneByCode($panelCode);
-        if (null === $panel || !$panel->isActive()) {
+        if (null === $panel || !$panel->isActive() || !$this->panelRegistry->isAvailable($panel)) {
             throw new PanelNotFoundException(sprintf('No active panel "%s".', $panelCode));
         }
 

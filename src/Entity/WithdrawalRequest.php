@@ -238,7 +238,7 @@ class WithdrawalRequest implements PaymentRequestInterface
 
     public function toCallbackPayload(): array
     {
-        return [
+        $payload = [
             'request_id' => (string) $this->id,
             'external_reference' => $this->externalReference,
             'status' => $this->status->value,
@@ -247,6 +247,12 @@ class WithdrawalRequest implements PaymentRequestInterface
             'amount' => $this->amount,
             'tx_hash' => $this->txHash,
         ];
+
+        if ($this->panel->isTestPanel()) {
+            $payload['test_mode'] = true;
+        }
+
+        return $payload;
     }
 
     public function callbackEventType(): string

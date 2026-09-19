@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controller\Admin;
 
 use App\Entity\Panel;
+use App\Panel\BinanceTest\BinanceTestPanel;
 use App\Security\PanelCredentialsEncryptor;
 use Doctrine\ORM\EntityManagerInterface;
 use EasyCorp\Bundle\EasyAdminBundle\Config\Crud;
@@ -24,8 +25,10 @@ use EasyCorp\Bundle\EasyAdminBundle\Field\TextField;
  */
 final class PanelCrudController extends AbstractCrudController
 {
-    public function __construct(private readonly PanelCredentialsEncryptor $credentialsEncryptor)
-    {
+    public function __construct(
+        private readonly PanelCredentialsEncryptor $credentialsEncryptor,
+        private readonly BinanceTestPanel $binanceTestPanel,
+    ) {
     }
 
     public static function getEntityFqcn(): string
@@ -71,13 +74,28 @@ final class PanelCrudController extends AbstractCrudController
     public function persistEntity(EntityManagerInterface $entityManager, mixed $entityInstance): void
     {
         $this->applyCredentials($entityInstance);
+        $this->warnAboutTestPanel($entityInstance);
         parent::persistEntity($entityManager, $entityInstance);
     }
 
     public function updateEntity(EntityManagerInterface $entityManager, mixed $entityInstance): void
     {
         $this->applyCredentials($entityInstance);
+        $this->warnAboutTestPanel($entityInstance);
         parent::updateEntity($entityManager, $entityInstance);
+    }
+
+    private function warnAboutTestPanel(mixed $entityInstance): void
+    {
+        if (!$entityInstance instanceof Panel || !$entityInstance->isTestPanel()) {
+            return;
+        }
+
+        if ($this->binanceTestPanel->isEnabled()) {
+            $this->addFlash('warning', '[BINANCE TEST] This panel issues FAKE deposit details. "active" only takes effect because BINANCE_TEST_PANEL_ENABLED is on.');
+        } elseif ($entityInstance->isActive()) {
+            $this->addFlash('warning', '[BINANCE TEST] "active" is on, but BINANCE_TEST_PANEL_ENABLED is off -- the panel stays unusable until the env flag is set.');
+        }
     }
 
     private function applyCredentials(mixed $entityInstance): void

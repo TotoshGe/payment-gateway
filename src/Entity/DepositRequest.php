@@ -262,7 +262,7 @@ class DepositRequest implements PaymentRequestInterface
 
     public function toCallbackPayload(): array
     {
-        return [
+        $payload = [
             'request_id' => (string) $this->id,
             'external_reference' => $this->externalReference,
             'status' => $this->status->value,
@@ -270,6 +270,12 @@ class DepositRequest implements PaymentRequestInterface
             'network' => $this->network,
             'amount' => $this->receivedAmount ?? $this->expectedAmount,
         ];
+
+        if ($this->panel->isTestPanel()) {
+            $payload['test_mode'] = true;
+        }
+
+        return $payload;
     }
 
     public function callbackEventType(): string

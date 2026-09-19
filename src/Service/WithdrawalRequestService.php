@@ -46,7 +46,7 @@ final class WithdrawalRequestService
         }
 
         $panel = $this->panelRepository->findOneByCode($panelCode);
-        if (null === $panel || !$panel->isActive()) {
+        if (null === $panel || !$panel->isActive() || !$this->panelRegistry->isAvailable($panel)) {
             throw new PanelNotFoundException(sprintf('No active panel "%s".', $panelCode));
         }
 
