@@ -79,3 +79,11 @@ when@test:
             autoconfigure: true
             public: true
             tags: ['app.panel_driver']
+
+        App\MessageHandler\DispatchCallbackMessageHandler:
+            autowire: true
+            autoconfigure: true
+            public: true
+            arguments:
+                $httpClient: '@App\Tests\Fixture\ScriptedHttpClient'
+                $okeanCallbackUrl: '%app.okean_callback_url%'

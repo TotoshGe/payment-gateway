@@ -22,6 +22,7 @@ final class CallbackDispatcher
     public function __construct(
         private readonly EntityManagerInterface $entityManager,
         private readonly MessageBusInterface $messageBus,
+        private readonly CallbackDeliveryTargetResolver $targetResolver,
     ) {
     }
 
@@ -49,6 +50,7 @@ final class CallbackDispatcher
     public function redispatch(CallbackDelivery $delivery): void
     {
         $delivery->resetForManualResend();
+        $this->targetResolver->resolve($delivery)?->setCallbackStatus($delivery->getStatus());
         $this->entityManager->flush();
 
         $this->messageBus->dispatch(new DispatchCallbackMessage($delivery->getId()));

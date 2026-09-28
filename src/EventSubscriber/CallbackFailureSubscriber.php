@@ -6,6 +6,7 @@ namespace App\EventSubscriber;
 
 use App\Message\DispatchCallbackMessage;
 use App\Repository\CallbackDeliveryRepository;
+use App\Service\CallbackDeliveryTargetResolver;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Component\EventDispatcher\EventSubscriberInterface;
 use Symfony\Component\Messenger\Event\WorkerMessageFailedEvent;
@@ -20,6 +21,7 @@ final class CallbackFailureSubscriber implements EventSubscriberInterface
     public function __construct(
         private readonly CallbackDeliveryRepository $callbackDeliveryRepository,
         private readonly EntityManagerInterface $entityManager,
+        private readonly CallbackDeliveryTargetResolver $targetResolver,
     ) {
     }
 
@@ -47,6 +49,7 @@ final class CallbackFailureSubscriber implements EventSubscriberInterface
         }
 
         $delivery->markExhausted();
+        $this->targetResolver->resolve($delivery)?->setCallbackStatus($delivery->getStatus());
         $this->entityManager->flush();
     }
 }
