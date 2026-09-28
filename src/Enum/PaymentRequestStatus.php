@@ -55,4 +55,19 @@ enum PaymentRequestStatus: string
     {
         return self::COMPLETED === $this;
     }
+
+    /**
+     * EasyAdmin ChoiceField::renderAsBadges() severity, purely presentational
+     * (admin/DepositRequestCrudController, WithdrawalRequestCrudController).
+     */
+    public function badgeType(): string
+    {
+        return match ($this) {
+            self::COMPLETED => 'success',
+            self::FAILED, self::EXPIRED, self::SUBMIT_FAILED => 'danger',
+            self::PROCESSING, self::RECEIVED => 'warning',
+            self::AWAITING_PAYMENT, self::SUBMITTED => 'info',
+            self::NEW => 'secondary',
+        };
+    }
 }

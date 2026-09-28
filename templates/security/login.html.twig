@@ -1,27 +1,18 @@
-<!DOCTYPE html>
-<html>
-<head>
-    <meta charset="UTF-8">
-    <title>payment-gateway admin — login</title>
-</head>
-<body style="font-family: sans-serif; max-width: 360px; margin: 80px auto;">
-    <h1>Sign in</h1>
+{# Built on EasyAdmin's own login page so it shares the light/dark scheme, fonts and form styles without any CDN.
+   Port of Okean's admin_login.html.twig. #}
+{% extends '@EasyAdmin/page/login.html.twig' %}
 
-    {% if error %}
-        <p style="color: red;">{{ error.messageKey|trans(error.messageData, 'security') }}</p>
-    {% endif %}
+{% block head_stylesheets %}
+    {{ parent() }}
+    <link rel="stylesheet" href="{{ admin_theme_css() }}">
+{% endblock %}
 
-    <form method="post">
-        <div>
-            <label for="username">Email</label><br>
-            <input type="email" id="username" name="_username" value="{{ last_username }}" required>
-        </div>
-        <div>
-            <label for="password">Password</label><br>
-            <input type="password" id="password" name="_password" required>
-        </div>
-        <input type="hidden" name="_csrf_token" value="{{ csrf_token('authenticate') }}">
-        <button type="submit">Sign in</button>
-    </form>
-</body>
-</html>
+{% block wrapper_wrapper %}
+    <script src="{{ asset('page-color-scheme.js', constant('EasyCorp\\Bundle\\EasyAdminBundle\\Asset\\AssetPackage::PACKAGE_NAME')) }}"></script>
+    {{ parent() }}
+{% endblock %}
+
+{% block header_logo %}
+    <div class="logo pg-login-logo"><i class="fa fa-right-left"></i> payment-gateway</div>
+    <div class="pg-login-subtitle">Admin panel</div>
+{% endblock %}

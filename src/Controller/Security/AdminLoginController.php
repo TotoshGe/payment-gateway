@@ -17,6 +17,12 @@ final class AdminLoginController extends AbstractController
         return $this->render('security/login.html.twig', [
             'last_username' => $authenticationUtils->getLastUsername(),
             'error' => $authenticationUtils->getLastAuthenticationError(),
+            'page_title' => 'payment-gateway',
+            'action' => $this->generateUrl('admin_login'),
+            'csrf_token_intention' => 'authenticate',
+            'target_path' => $this->generateUrl('admin'),
+            'username_label' => 'Email',
+            'translation_domain' => 'messages',
         ]);
     }
 }

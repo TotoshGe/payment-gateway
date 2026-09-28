@@ -1,0 +1,56 @@
+{# Shared building blocks of the custom admin pages (dashboard). Styles: public/admin.css (.pg-*). Trimmed port of
+   Okean's admin/_macros.html.twig: only the pieces the gateway's own (much simpler) dashboard needs. #}
+
+{# Small KPI card. tone: brand | success | warning | danger | info #}
+{% macro kpi(label, value, note, icon, tone, url) %}
+    {% set tag = url ? 'a' : 'div' %}
+    <{{ tag }} class="pg-card pg-kpi pg-card--{{ tone|default('brand') }}" {% if url %}href="{{ url }}"{% endif %}>
+        <span class="pg-kpi__icon"><i class="{{ icon }}"></i></span>
+        <span class="pg-kpi__body">
+            <span class="pg-kpi__label">{{ label }}</span>
+            <span class="pg-kpi__value pg-num">{{ value }}</span>
+            {% if note %}<span class="pg-kpi__note">{{ note }}</span>{% endif %}
+        </span>
+    </{{ tag }}>
+{% endmacro %}
+
+{# Per-status breakdown card. data = {total, buckets: [{state, count}]} #}
+{% macro status_table(title, icon, data, list_url, filter_urls) %}
+    <section class="pg-card pg-card--brand">
+        <header class="pg-card__head">
+            <i class="{{ icon }}"></i>
+            <span class="pg-card__title">{{ title }}</span>
+            <span class="pg-count">{{ data.total }}</span>
+            {% if list_url %}<a class="pg-card__link" href="{{ list_url }}">All <i class="fa fa-arrow-right"></i></a>{% endif %}
+        </header>
+        <div class="pg-table-wrap">
+            <table class="pg-table">
+                <thead>
+                    <tr>
+                        <th>Status</th>
+                        <th class="pg-r">Count</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    {% for b in data.buckets %}
+                        <tr class="{{ b.count == 0 ? 'is-empty' : '' }}">
+                            <td>
+                                {% if filter_urls[b.state] is defined and b.count > 0 %}
+                                    <a class="pg-plain" href="{{ filter_urls[b.state] }}">{{ b.state }}</a>
+                                {% else %}
+                                    {{ b.state }}
+                                {% endif %}
+                            </td>
+                            <td class="pg-r pg-num">
+                                {{ b.count }}
+                                {% if data.total > 0 and b.count > 0 %}
+                                    <span class="pg-bar" title="{{ (b.count / data.total * 100)|round }}%"><span style="width: {{ (b.count / data.total * 100)|round }}%"></span></span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </section>
+{% endmacro %}

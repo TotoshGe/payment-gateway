@@ -12,4 +12,17 @@ enum CallbackDeliveryStatus: string
 
     /** Retries exhausted -- needs a human (admin resend) from here on. */
     case EXHAUSTED = 'exhausted';
+
+    /**
+     * EasyAdmin ChoiceField::renderAsBadges() severity, purely presentational
+     * (admin/CallbackDeliveryCrudController).
+     */
+    public function badgeType(): string
+    {
+        return match ($this) {
+            self::SENT => 'success',
+            self::FAILED, self::EXHAUSTED => 'danger',
+            self::PENDING => 'secondary',
+        };
+    }
 }

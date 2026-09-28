@@ -1,0 +1,20 @@
+{# Overrides EasyAdmin's stock Bootstrap alert flashes with toasts: fixed top-right stack, auto-dismiss + close
+   button, handled by admin.js's initFlashToasts(). Port of Okean's flash_messages.html.twig override. #}
+{% set ea = ea() %}
+{% trans_default_domain null != ea ? ea.i18n.translationDomain : (translation_domain is defined ? translation_domain ?? 'messages') %}
+{% set flash_messages = app.flashes %}
+
+{% if flash_messages|length > 0 %}
+    <div id="flash-messages" class="pg-flash-toasts" data-pg-flash-toasts aria-live="polite" aria-atomic="false">
+        {% for label, messages in flash_messages %}
+            {% set tone = label in ['success', 'danger', 'warning'] ? label : 'info' %}
+            {% for message in messages %}
+                <div class="pg-flash-toast pg-flash-toast--{{ tone }}" data-pg-flash-toast role="status">
+                    <i class="fa {{ tone == 'success' ? 'fa-circle-check' : (tone == 'danger' ? 'fa-circle-exclamation' : (tone == 'warning' ? 'fa-triangle-exclamation' : 'fa-circle-info')) }}" aria-hidden="true"></i>
+                    <span class="pg-flash-toast__text">{{ message|trans|raw }}</span>
+                    <button type="button" class="pg-flash-toast__close" data-pg-flash-toast-close aria-label="Close">&times;</button>
+                </div>
+            {% endfor %}
+        {% endfor %}
+    </div>
+{% endif %}

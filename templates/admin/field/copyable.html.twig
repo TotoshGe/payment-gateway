@@ -1,0 +1,8 @@
+{% if field.value is empty %}
+    <span class="pg-muted">—</span>
+{% else %}
+    <span class="pg-copy">
+        <span class="pg-copy__text">{{ field.formattedValue }}</span>
+        <button type="button" class="pg-copy__btn" data-pg-copy="{{ field.value }}" title="Copy" aria-label="Copy"><i class="fa fa-regular fa-copy" aria-hidden="true"></i></button>
+    </span>
+{% endif %}

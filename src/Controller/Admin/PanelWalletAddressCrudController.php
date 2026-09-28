@@ -59,7 +59,10 @@ final class PanelWalletAddressCrudController extends AbstractCrudController
         yield ChoiceField::new('status')->setChoices([
             PanelWalletAddressStatus::FREE->value => PanelWalletAddressStatus::FREE->value,
             PanelWalletAddressStatus::HELD->value => PanelWalletAddressStatus::HELD->value,
-        ])->renderAsBadges();
+        ])->renderAsBadges([
+            PanelWalletAddressStatus::FREE->value => PanelWalletAddressStatus::FREE->badgeType(),
+            PanelWalletAddressStatus::HELD->value => PanelWalletAddressStatus::HELD->badgeType(),
+        ]);
         yield TextField::new('heldByDepositRequestId')->hideOnIndex();
         yield DateTimeField::new('heldAt')->hideOnIndex();
         yield DateTimeField::new('createdAt');

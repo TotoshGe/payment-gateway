@@ -58,7 +58,7 @@ final class CallbackDeliveryCrudController extends AbstractCrudController
         yield TextField::new('eventType');
         yield TextField::new('requestTypeLabel', 'Request type');
         yield TextField::new('requestIdLabel', 'Request ID');
-        yield ChoiceField::new('status')->setChoices(self::statusChoices())->renderAsBadges();
+        yield ChoiceField::new('status')->setChoices(self::statusChoices())->renderAsBadges(self::statusBadgeTypes());
         yield IntegerField::new('attempt');
         yield IntegerField::new('lastResponseCode')->hideOnIndex();
         yield TextField::new('lastError')->hideOnIndex();
@@ -101,5 +101,18 @@ final class CallbackDeliveryCrudController extends AbstractCrudController
         }
 
         return $choices;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private static function statusBadgeTypes(): array
+    {
+        $types = [];
+        foreach (CallbackDeliveryStatus::cases() as $case) {
+            $types[$case->value] = $case->badgeType();
+        }
+
+        return $types;
     }
 }

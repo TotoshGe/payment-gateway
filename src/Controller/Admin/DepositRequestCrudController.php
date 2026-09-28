@@ -52,14 +52,14 @@ final class DepositRequestCrudController extends AbstractCrudController
 
     public function configureFields(string $pageName): iterable
     {
-        yield TextField::new('externalReference');
+        yield TextField::new('externalReference')->setTemplatePath('admin/field/copyable.html.twig');
         yield AssociationField::new('panel');
         yield TextField::new('currency');
         yield TextField::new('network')->hideOnIndex();
-        yield ChoiceField::new('status')->setChoices(self::statusChoices())->renderAsBadges();
+        yield ChoiceField::new('status')->setChoices(self::statusChoices())->renderAsBadges(self::statusBadgeTypes());
         yield TextField::new('expectedAmount');
         yield TextField::new('receivedAmount')->hideOnIndex();
-        yield TextField::new('address')->hideOnIndex();
+        yield TextField::new('address')->hideOnIndex()->setTemplatePath('admin/field/copyable.html.twig');
         yield ChoiceField::new('callbackStatus')->hideOnIndex();
         yield DateTimeField::new('expiresAt')->hideOnIndex();
         yield DateTimeField::new('lastPolledAt')->hideOnIndex();
@@ -159,5 +159,18 @@ final class DepositRequestCrudController extends AbstractCrudController
         }
 
         return $choices;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private static function statusBadgeTypes(): array
+    {
+        $types = [];
+        foreach (PaymentRequestStatus::cases() as $case) {
+            $types[$case->value] = $case->badgeType();
+        }
+
+        return $types;
     }
 }

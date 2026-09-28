@@ -1,0 +1,16 @@
+{# Replaces the stock grey skeleton rows + plain "No results found" text with one centred icon+message row, applied
+   to every list page. Port of Okean's crud/index.html.twig override (without the columns picker button, which was
+   an extra feature, not part of the shell). #}
+{% extends '@!EasyAdmin/crud/index.html.twig' %}
+
+{% block table_body_empty %}
+    <tr class="pg-empty-row">
+        <td colspan="100">
+            <div class="pg-empty-state">
+                <i class="fa fa-inbox" aria-hidden="true"></i>
+                <p class="pg-empty-state__title">Nothing here yet</p>
+                <p class="pg-empty-state__text">No records match the current view.</p>
+            </div>
+        </td>
+    </tr>
+{% endblock %}

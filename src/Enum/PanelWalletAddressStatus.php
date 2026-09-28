@@ -8,4 +8,16 @@ enum PanelWalletAddressStatus: string
 {
     case FREE = 'free';
     case HELD = 'held';
+
+    /**
+     * EasyAdmin ChoiceField::renderAsBadges() severity, purely presentational
+     * (admin/PanelWalletAddressCrudController).
+     */
+    public function badgeType(): string
+    {
+        return match ($this) {
+            self::FREE => 'success',
+            self::HELD => 'warning',
+        };
+    }
 }

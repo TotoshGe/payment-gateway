@@ -1,0 +1,17 @@
+{# Stock EasyAdmin layout plus: a search box above the sidebar menu and breadcrumbs above the page title. Trimmed
+   port of Okean's admin/layout.html.twig -- no global Ctrl+K search, no "problems" topbar dialog: those were
+   Okean-domain features, not part of the shell. #}
+{% extends '@EasyAdmin/layout.html.twig' %}
+
+{% block main_menu_wrapper %}
+    <div class="pg-menu-search">
+        <i class="fa fa-magnifying-glass" aria-hidden="true"></i>
+        <input type="search" data-pg-menu-search placeholder="Search sections" autocomplete="off" aria-label="Search sections">
+    </div>
+    {{ parent() }}
+{% endblock %}
+
+{% block content_header_wrapper %}
+    {% include 'admin/_breadcrumbs.html.twig' %}
+    {{ parent() }}
+{% endblock %}
