@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controller\Admin;
 
 use App\Entity\DepositRequest;
+use App\Enum\CallbackDeliveryStatus;
 use App\Enum\PaymentRequestStatus;
 use App\Panel\TestPanel\TestPanelSimulationException;
 use App\Panel\TestPanel\TestPanelSimulator;
@@ -45,37 +46,37 @@ final class DepositRequestCrudController extends AbstractCrudController
     public function configureCrud(Crud $crud): Crud
     {
         return $crud
-            ->setEntityLabelInSingular('Deposit request')
-            ->setEntityLabelInPlural('Deposit requests')
+            ->setEntityLabelInSingular('Заявка на пополнение')
+            ->setEntityLabelInPlural('Заявки на пополнение')
             ->setDefaultSort(['createdAt' => 'DESC']);
     }
 
     public function configureFields(string $pageName): iterable
     {
-        yield TextField::new('externalReference')->setTemplatePath('admin/field/copyable.html.twig');
-        yield AssociationField::new('panel');
-        yield TextField::new('currency');
-        yield TextField::new('network')->hideOnIndex();
-        yield ChoiceField::new('status')->setChoices(self::statusChoices())->renderAsBadges(self::statusBadgeTypes());
-        yield TextField::new('expectedAmount');
-        yield TextField::new('receivedAmount')->hideOnIndex();
-        yield TextField::new('address')->hideOnIndex()->setTemplatePath('admin/field/copyable.html.twig');
-        yield ChoiceField::new('callbackStatus')->hideOnIndex();
-        yield DateTimeField::new('expiresAt')->hideOnIndex();
-        yield DateTimeField::new('lastPolledAt')->hideOnIndex();
-        yield DateTimeField::new('createdAt');
-        yield DateTimeField::new('updatedAt')->hideOnIndex();
+        yield TextField::new('externalReference', 'Внешний референс')->setTemplatePath('admin/field/copyable.html.twig');
+        yield AssociationField::new('panel', 'Панель');
+        yield TextField::new('currency', 'Валюта');
+        yield TextField::new('network', 'Сеть')->hideOnIndex();
+        yield ChoiceField::new('status', 'Статус')->setChoices(self::statusChoices())->renderAsBadges(self::statusBadgeTypes());
+        yield TextField::new('expectedAmount', 'Ожидаемая сумма');
+        yield TextField::new('receivedAmount', 'Полученная сумма')->hideOnIndex();
+        yield TextField::new('address', 'Адрес')->hideOnIndex()->setTemplatePath('admin/field/copyable.html.twig');
+        yield ChoiceField::new('callbackStatus', 'Статус колбэка')->setChoices(self::callbackStatusChoices())->renderAsBadges(self::callbackStatusBadgeTypes())->hideOnIndex();
+        yield DateTimeField::new('expiresAt', 'Истекает')->hideOnIndex();
+        yield DateTimeField::new('lastPolledAt', 'Последний опрос')->hideOnIndex();
+        yield DateTimeField::new('createdAt', 'Создано');
+        yield DateTimeField::new('updatedAt', 'Обновлено')->hideOnIndex();
     }
 
     public function configureActions(Actions $actions): Actions
     {
         $actions = $actions->disable(Action::NEW, Action::DELETE, Action::EDIT);
 
-        $markExpired = Action::new('markExpired', 'Mark as expired')
+        $markExpired = Action::new('markExpired', 'Отметить как истёкшую')
             ->linkToCrudAction('markExpired')
             ->displayIf(static fn (DepositRequest $d) => PaymentRequestStatus::AWAITING_PAYMENT === $d->getStatus());
 
-        $resendCallback = Action::new('resendCallback', 'Resend callback')
+        $resendCallback = Action::new('resendCallback', 'Повторить отправку колбэка')
             ->linkToCrudAction('resendCallback')
             ->displayIf(static fn (DepositRequest $d) => $d->getStatus()->isTerminal());
 
@@ -86,8 +87,8 @@ final class DepositRequestCrudController extends AbstractCrudController
             ->add(Crud::PAGE_DETAIL, $resendCallback);
 
         $testActions = [
-            'testReceived' => ['Test Panel: mark received', PaymentRequestStatus::RECEIVED],
-            'testConfirm' => ['Test Panel: confirm payment', PaymentRequestStatus::COMPLETED],
+            'testReceived' => ['Тестовая панель: отметить получение', PaymentRequestStatus::RECEIVED],
+            'testConfirm' => ['Тестовая панель: подтвердить оплату', PaymentRequestStatus::COMPLETED],
         ];
         foreach ($testActions as $method => [$label, $target]) {
             $action = Action::new($method, $label)
@@ -120,9 +121,9 @@ final class DepositRequestCrudController extends AbstractCrudController
 
         try {
             $this->testPanelSimulator->transitionDeposit($depositRequest, $target);
-            $this->addFlash('success', sprintf('[TEST PANEL] Deposit moved to "%s" (manual; Okean is called back for terminal statuses).', $target->value));
+            $this->addFlash('success', sprintf('[ТЕСТ-ПАНЕЛЬ] Заявка на пополнение переведена в статус «%s» (вручную; по терминальным статусам Okean получает колбэк).', $target->label()));
         } catch (TestPanelSimulationException $exception) {
-            $this->addFlash('danger', '[TEST PANEL] '.$exception->getMessage());
+            $this->addFlash('danger', '[ТЕСТ-ПАНЕЛЬ] '.$exception->getMessage());
         }
 
         return $this->redirect($context->getRequest()->headers->get('referer') ?? '/admin');
@@ -155,7 +156,7 @@ final class DepositRequestCrudController extends AbstractCrudController
     {
         $choices = [];
         foreach (PaymentRequestStatus::cases() as $case) {
-            $choices[$case->value] = $case->value;
+            $choices[$case->label()] = $case->value;
         }
 
         return $choices;
@@ -168,6 +169,32 @@ final class DepositRequestCrudController extends AbstractCrudController
     {
         $types = [];
         foreach (PaymentRequestStatus::cases() as $case) {
+            $types[$case->value] = $case->badgeType();
+        }
+
+        return $types;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private static function callbackStatusChoices(): array
+    {
+        $choices = [];
+        foreach (CallbackDeliveryStatus::cases() as $case) {
+            $choices[$case->label()] = $case->value;
+        }
+
+        return $choices;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private static function callbackStatusBadgeTypes(): array
+    {
+        $types = [];
+        foreach (CallbackDeliveryStatus::cases() as $case) {
             $types[$case->value] = $case->badgeType();
         }
 

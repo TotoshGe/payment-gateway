@@ -37,8 +37,8 @@ final class PanelCrudController extends AbstractCrudController
     public function configureCrud(Crud $crud): Crud
     {
         return $crud
-            ->setEntityLabelInSingular('Panel')
-            ->setEntityLabelInPlural('Panels')
+            ->setEntityLabelInSingular('Панель')
+            ->setEntityLabelInPlural('Панели')
             ->setDefaultSort(['code' => 'ASC']);
     }
 
@@ -49,24 +49,24 @@ final class PanelCrudController extends AbstractCrudController
 
     public function configureFields(string $pageName): iterable
     {
-        yield TextField::new('code');
-        yield TextField::new('label');
-        yield BooleanField::new('active');
-        yield TextareaField::new('plainCredentialsInput', 'Credentials (JSON, write-only)')
+        yield TextField::new('code', 'Код');
+        yield TextField::new('label', 'Название');
+        yield BooleanField::new('active', 'Активна');
+        yield TextareaField::new('plainCredentialsInput', 'Учётные данные (JSON, только для записи)')
             ->setFormTypeOption('required', false)
             ->hideOnIndex()
             ->hideOnDetail()
-            ->setHelp('Enter as {"apiKey": "...", "apiSecret": "..."}. Leave blank to keep the current value unchanged. Never displayed once saved.');
-        yield TextareaField::new('supportedCurrenciesJson', 'Supported currencies (JSON)')
+            ->setHelp('Введите в формате {"apiKey": "...", "apiSecret": "..."}. Оставьте пустым, чтобы сохранить текущее значение без изменений. После сохранения никогда не отображается.');
+        yield TextareaField::new('supportedCurrenciesJson', 'Поддерживаемые валюты (JSON)')
             ->setFormTypeOption('required', false)
             ->onlyOnForms()
-            ->setHelp('e.g. [{"currency": "USDT", "network": "TRC20"}]');
-        yield TextareaField::new('configJson', 'Config (JSON)')
+            ->setHelp('Например: [{"currency": "USDT", "network": "TRC20"}]');
+        yield TextareaField::new('configJson', 'Конфигурация (JSON)')
             ->setFormTypeOption('required', false)
             ->onlyOnForms()
-            ->setHelp('Non-secret panel config, e.g. {"baseUrl": "...", "subAccounts": {"USDT:TRC20": ["sub1@x.com"]}}.');
-        yield DateTimeField::new('createdAt')->hideOnForm();
-        yield DateTimeField::new('updatedAt')->hideOnForm();
+            ->setHelp('Несекретная конфигурация панели, например {"baseUrl": "...", "subAccounts": {"USDT:TRC20": ["sub1@x.com"]}}.');
+        yield DateTimeField::new('createdAt', 'Создано')->hideOnForm();
+        yield DateTimeField::new('updatedAt', 'Обновлено')->hideOnForm();
     }
 
     public function persistEntity(EntityManagerInterface $entityManager, mixed $entityInstance): void
@@ -94,7 +94,7 @@ final class PanelCrudController extends AbstractCrudController
 
         $decoded = json_decode($plain, true);
         if (!\is_array($decoded)) {
-            throw new \InvalidArgumentException('Credentials must be a valid JSON object.');
+            throw new \InvalidArgumentException('Учётные данные должны быть валидным JSON-объектом.');
         }
 
         $entityInstance->setEncryptedCredentials($this->credentialsEncryptor->encrypt($decoded));

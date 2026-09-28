@@ -69,13 +69,13 @@ final class TestPanelAdminTest extends FunctionalTestCase
         self::assertStringNotContainsString('[TEST]', $crawler->text());
         $confirmForms = $crawler->filter('form[action*="test-confirm"]');
         self::assertCount(1, $confirmForms, 'only the test panel row gets the confirm button, not the other panel');
-        self::assertStringContainsString('Test Panel: confirm payment', $crawler->filter('a[data-ea-action-form-id="'.$confirmForms->attr('id').'"]')->text());
+        self::assertStringContainsString('Тестовая панель: подтвердить оплату', $crawler->filter('a[data-ea-action-form-id="'.$confirmForms->attr('id').'"]')->text());
         self::assertCount(1, $crawler->filter('form[action*="test-received"]'));
         self::assertCount(0, $crawler->filter('form[action*="test-fail"]'), 'deposits cannot fail on Binance, so neither here');
 
         $client->submit($confirmForms->form());
         $client->followRedirect();
-        self::assertSelectorTextContains('body', '[TEST PANEL] Deposit moved to "completed"');
+        self::assertSelectorTextContains('body', '[ТЕСТ-ПАНЕЛЬ] Заявка на пополнение переведена в статус «Завершена»');
 
         $em->clear();
         $reloaded = self::getContainer()->get(DepositRequestRepository::class)->find($testDeposit->getId());
@@ -102,7 +102,7 @@ final class TestPanelAdminTest extends FunctionalTestCase
 
         $client->submit($form->form());
         $client->followRedirect();
-        self::assertSelectorTextContains('body', '[TEST PANEL] Withdrawal moved to "completed"');
+        self::assertSelectorTextContains('body', '[ТЕСТ-ПАНЕЛЬ] Заявка на вывод переведена в статус «Завершена»');
 
         $em->clear();
         $reloaded = $em->getRepository($withdrawal::class)->find($withdrawal->getId());

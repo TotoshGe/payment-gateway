@@ -75,15 +75,15 @@ final class TestPanelSimulator
 
         if (!\in_array($target, $this->availableDepositTargets($request), true)) {
             throw new TestPanelSimulationException(sprintf(
-                'Deposit %s is "%s"; cannot move it to "%s".',
+                'Пополнение %s имеет статус «%s»; невозможно перевести его в «%s».',
                 $request->getId(),
-                $request->getStatus()->value,
-                $target->value,
+                $request->getStatus()->label(),
+                $target->label(),
             ));
         }
 
         if (null !== $amount && 1 !== preg_match('/^\d+(\.\d+)?$/', $amount)) {
-            throw new TestPanelSimulationException('Amount must be a plain decimal string.');
+            throw new TestPanelSimulationException('Сумма должна быть десятичной строкой.');
         }
 
         $this->logger->warning(TestPanel::LOG_PREFIX.' simulating deposit status change', [
@@ -113,10 +113,10 @@ final class TestPanelSimulator
 
         if (!\in_array($target, $this->availableWithdrawalTargets($request), true)) {
             throw new TestPanelSimulationException(sprintf(
-                'Withdrawal %s is "%s"; cannot move it to "%s".',
+                'Вывод %s имеет статус «%s»; невозможно перевести его в «%s».',
                 $request->getId(),
-                $request->getStatus()->value,
-                $target->value,
+                $request->getStatus()->label(),
+                $target->label(),
             ));
         }
 
@@ -142,7 +142,7 @@ final class TestPanelSimulator
     private function assertSimulatable(Panel $panel): void
     {
         if (TestPanel::CODE !== $panel->getCode()) {
-            throw new TestPanelSimulationException(sprintf('Request belongs to panel "%s", not %s -- refusing to simulate.', $panel->getCode(), TestPanel::CODE));
+            throw new TestPanelSimulationException(sprintf('Заявка принадлежит панели «%s», а не %s -- симуляция невозможна.', $panel->getCode(), TestPanel::CODE));
         }
     }
 }

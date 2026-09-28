@@ -18,6 +18,9 @@ use EasyCorp\Bundle\EasyAdminBundle\Field\ChoiceField;
 use EasyCorp\Bundle\EasyAdminBundle\Field\DateTimeField;
 use EasyCorp\Bundle\EasyAdminBundle\Field\IntegerField;
 use EasyCorp\Bundle\EasyAdminBundle\Field\TextField;
+use EasyCorp\Bundle\EasyAdminBundle\Filter\ChoiceFilter;
+use EasyCorp\Bundle\EasyAdminBundle\Filter\DateTimeFilter;
+use EasyCorp\Bundle\EasyAdminBundle\Filter\TextFilter;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use EasyCorp\Bundle\EasyAdminBundle\Attribute\AdminRoute;
 
@@ -35,8 +38,8 @@ final class CallbackDeliveryCrudController extends AbstractCrudController
     public function configureCrud(Crud $crud): Crud
     {
         return $crud
-            ->setEntityLabelInSingular('Callback delivery')
-            ->setEntityLabelInPlural('Callback deliveries')
+            ->setEntityLabelInSingular('Доставка колбэка')
+            ->setEntityLabelInPlural('Доставка колбэков')
             ->setDefaultSort(['createdAt' => 'DESC']);
     }
 
@@ -48,30 +51,30 @@ final class CallbackDeliveryCrudController extends AbstractCrudController
     public function configureFilters(Filters $filters): Filters
     {
         return $filters
-            ->add('eventType')
-            ->add('status')
-            ->add('createdAt');
+            ->add(TextFilter::new('eventType', 'Тип события'))
+            ->add(ChoiceFilter::new('status', 'Статус')->setChoices(self::statusChoices()))
+            ->add(DateTimeFilter::new('createdAt', 'Создано'));
     }
 
     public function configureFields(string $pageName): iterable
     {
-        yield TextField::new('eventType');
-        yield TextField::new('requestTypeLabel', 'Request type');
-        yield TextField::new('requestIdLabel', 'Request ID');
-        yield ChoiceField::new('status')->setChoices(self::statusChoices())->renderAsBadges(self::statusBadgeTypes());
-        yield IntegerField::new('attempt');
-        yield IntegerField::new('lastResponseCode')->hideOnIndex();
-        yield TextField::new('lastError')->hideOnIndex();
-        yield ArrayField::new('attemptLog')->onlyOnDetail();
-        yield DateTimeField::new('createdAt');
-        yield DateTimeField::new('updatedAt')->hideOnIndex();
+        yield TextField::new('eventType', 'Тип события');
+        yield TextField::new('requestTypeLabel', 'Тип заявки');
+        yield TextField::new('requestIdLabel', 'ID заявки');
+        yield ChoiceField::new('status', 'Статус')->setChoices(self::statusChoices())->renderAsBadges(self::statusBadgeTypes());
+        yield IntegerField::new('attempt', 'Попытка');
+        yield IntegerField::new('lastResponseCode', 'Код последнего ответа')->hideOnIndex();
+        yield TextField::new('lastError', 'Последняя ошибка')->hideOnIndex();
+        yield ArrayField::new('attemptLog', 'Журнал попыток')->onlyOnDetail();
+        yield DateTimeField::new('createdAt', 'Создано');
+        yield DateTimeField::new('updatedAt', 'Обновлено')->hideOnIndex();
     }
 
     public function configureActions(Actions $actions): Actions
     {
         $actions = $actions->disable(Action::NEW, Action::DELETE, Action::EDIT);
 
-        $resend = Action::new('resend', 'Resend now')
+        $resend = Action::new('resend', 'Повторить отправку')
             ->linkToCrudAction('resend')
             ->displayIf(static fn (CallbackDelivery $d) => \in_array($d->getStatus(), [CallbackDeliveryStatus::FAILED, CallbackDeliveryStatus::EXHAUSTED], true));
 
@@ -97,7 +100,7 @@ final class CallbackDeliveryCrudController extends AbstractCrudController
     {
         $choices = [];
         foreach (CallbackDeliveryStatus::cases() as $case) {
-            $choices[$case->value] = $case->value;
+            $choices[$case->label()] = $case->value;
         }
 
         return $choices;

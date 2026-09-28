@@ -14,6 +14,20 @@ enum CallbackDeliveryStatus: string
     case EXHAUSTED = 'exhausted';
 
     /**
+     * Russian label for the admin UI. The stored value is the DB contract
+     * and never changes.
+     */
+    public function label(): string
+    {
+        return match ($this) {
+            self::PENDING => 'Ожидание',
+            self::SENT => 'Отправлено',
+            self::FAILED => 'Ошибка',
+            self::EXHAUSTED => 'Попытки исчерпаны',
+        };
+    }
+
+    /**
      * EasyAdmin ChoiceField::renderAsBadges() severity, purely presentational
      * (admin/CallbackDeliveryCrudController).
      */

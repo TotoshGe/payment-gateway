@@ -102,7 +102,7 @@ class CallbackDelivery
     /** Virtual string accessor for EasyAdmin -- PHP enums can't implement __toString(). */
     public function getRequestTypeLabel(): string
     {
-        return $this->requestType->value;
+        return $this->requestType->label();
     }
 
     public function getRequestId(): Uuid

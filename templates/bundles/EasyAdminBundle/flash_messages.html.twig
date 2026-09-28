@@ -12,7 +12,7 @@
                 <div class="pg-flash-toast pg-flash-toast--{{ tone }}" data-pg-flash-toast role="status">
                     <i class="fa {{ tone == 'success' ? 'fa-circle-check' : (tone == 'danger' ? 'fa-circle-exclamation' : (tone == 'warning' ? 'fa-triangle-exclamation' : 'fa-circle-info')) }}" aria-hidden="true"></i>
                     <span class="pg-flash-toast__text">{{ message|trans|raw }}</span>
-                    <button type="button" class="pg-flash-toast__close" data-pg-flash-toast-close aria-label="Close">&times;</button>
+                    <button type="button" class="pg-flash-toast__close" data-pg-flash-toast-close aria-label="Закрыть">&times;</button>
                 </div>
             {% endfor %}
         {% endfor %}

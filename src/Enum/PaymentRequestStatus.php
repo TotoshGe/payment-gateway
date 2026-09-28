@@ -57,6 +57,26 @@ enum PaymentRequestStatus: string
     }
 
     /**
+     * Russian label for the admin UI (EasyAdmin ChoiceField choices/badges).
+     * The stored value (e.g. "awaiting_payment") is the API/DB contract and
+     * never changes.
+     */
+    public function label(): string
+    {
+        return match ($this) {
+            self::NEW => 'Новая',
+            self::AWAITING_PAYMENT => 'Ожидает оплаты',
+            self::SUBMITTED => 'Отправлена',
+            self::PROCESSING => 'В обработке',
+            self::RECEIVED => 'Получена',
+            self::COMPLETED => 'Завершена',
+            self::FAILED => 'Ошибка',
+            self::EXPIRED => 'Истекла',
+            self::SUBMIT_FAILED => 'Не удалось отправить',
+        };
+    }
+
+    /**
      * EasyAdmin ChoiceField::renderAsBadges() severity, purely presentational
      * (admin/DepositRequestCrudController, WithdrawalRequestCrudController).
      */

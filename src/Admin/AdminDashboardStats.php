@@ -38,7 +38,7 @@ final class AdminDashboardStats
     }
 
     /**
-     * @return array{total: int, buckets: list<array{state: string, count: int}>}
+     * @return array{total: int, buckets: list<array{state: string, label: string, count: int}>}
      */
     private function byStatus(string $entityClass): array
     {
@@ -59,7 +59,7 @@ final class AdminDashboardStats
         foreach (PaymentRequestStatus::cases() as $case) {
             $count = $counts[$case->value] ?? 0;
             $total += $count;
-            $buckets[] = ['state' => $case->value, 'count' => $count];
+            $buckets[] = ['state' => $case->value, 'label' => $case->label(), 'count' => $count];
         }
 
         return ['total' => $total, 'buckets' => $buckets];

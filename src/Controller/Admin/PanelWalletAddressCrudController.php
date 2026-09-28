@@ -33,8 +33,8 @@ final class PanelWalletAddressCrudController extends AbstractCrudController
     public function configureCrud(Crud $crud): Crud
     {
         return $crud
-            ->setEntityLabelInSingular('Wallet pool address')
-            ->setEntityLabelInPlural('Wallet address pool')
+            ->setEntityLabelInSingular('Адрес пула')
+            ->setEntityLabelInPlural('Пул адресов')
             ->setDefaultSort(['currency' => 'ASC', 'slotIndex' => 'ASC']);
     }
 
@@ -50,21 +50,21 @@ final class PanelWalletAddressCrudController extends AbstractCrudController
 
     public function configureFields(string $pageName): iterable
     {
-        yield AssociationField::new('panel');
-        yield TextField::new('currency');
-        yield TextField::new('network');
-        yield IntegerField::new('slotIndex');
-        yield TextField::new('address');
-        yield TextField::new('addressTag')->hideOnIndex();
-        yield ChoiceField::new('status')->setChoices([
-            PanelWalletAddressStatus::FREE->value => PanelWalletAddressStatus::FREE->value,
-            PanelWalletAddressStatus::HELD->value => PanelWalletAddressStatus::HELD->value,
+        yield AssociationField::new('panel', 'Панель');
+        yield TextField::new('currency', 'Валюта');
+        yield TextField::new('network', 'Сеть');
+        yield IntegerField::new('slotIndex', 'Индекс слота');
+        yield TextField::new('address', 'Адрес');
+        yield TextField::new('addressTag', 'Тег адреса')->hideOnIndex();
+        yield ChoiceField::new('status', 'Статус')->setChoices([
+            PanelWalletAddressStatus::FREE->label() => PanelWalletAddressStatus::FREE->value,
+            PanelWalletAddressStatus::HELD->label() => PanelWalletAddressStatus::HELD->value,
         ])->renderAsBadges([
             PanelWalletAddressStatus::FREE->value => PanelWalletAddressStatus::FREE->badgeType(),
             PanelWalletAddressStatus::HELD->value => PanelWalletAddressStatus::HELD->badgeType(),
         ]);
-        yield TextField::new('heldByDepositRequestId')->hideOnIndex();
-        yield DateTimeField::new('heldAt')->hideOnIndex();
-        yield DateTimeField::new('createdAt');
+        yield TextField::new('heldByDepositRequestId', 'Удержан заявкой')->hideOnIndex();
+        yield DateTimeField::new('heldAt', 'Удержан с')->hideOnIndex();
+        yield DateTimeField::new('createdAt', 'Создано');
     }
 }

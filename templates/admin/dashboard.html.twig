@@ -1,7 +1,7 @@
 {% extends '@EasyAdmin/page/content.html.twig' %}
 {% import 'admin/_macros.html.twig' as pg %}
 
-{% block content_title %}Dashboard{% endblock %}
+{% block content_title %}Дашборд{% endblock %}
 
 {% block main %}
     {% set deposits = stats.deposits %}
@@ -11,26 +11,26 @@
 
     <div class="pg-page">
         <div class="pg-grid pg-grid--kpi">
-            {{ pg.kpi('Deposit requests', deposits.total, null, 'fa fa-arrow-down', 'brand', ea_url().setController('App\\Controller\\Admin\\DepositRequestCrudController').setAction('index')) }}
-            {{ pg.kpi('Withdrawal requests', withdrawals.total, null, 'fa fa-arrow-up', 'info', ea_url().setController('App\\Controller\\Admin\\WithdrawalRequestCrudController').setAction('index')) }}
-            {{ pg.kpi('Panels', panels.active ~ ' / ' ~ panels.total, 'active', 'fa fa-plug', 'brand', ea_url().setController('App\\Controller\\Admin\\PanelCrudController').setAction('index')) }}
-            {{ pg.kpi('Callbacks needing attention', stats.callbacksNeedingAttention, 'failed or exhausted', 'fa fa-bell', stats.callbacksNeedingAttention > 0 ? 'warning' : 'success', ea_url().setController('App\\Controller\\Admin\\CallbackDeliveryCrudController').setAction('index')) }}
+            {{ pg.kpi('Заявки на пополнение', deposits.total, null, 'fa fa-arrow-down', 'brand', ea_url().setController('App\\Controller\\Admin\\DepositRequestCrudController').setAction('index')) }}
+            {{ pg.kpi('Заявки на вывод', withdrawals.total, null, 'fa fa-arrow-up', 'info', ea_url().setController('App\\Controller\\Admin\\WithdrawalRequestCrudController').setAction('index')) }}
+            {{ pg.kpi('Панели', panels.active ~ ' / ' ~ panels.total, 'активны', 'fa fa-plug', 'brand', ea_url().setController('App\\Controller\\Admin\\PanelCrudController').setAction('index')) }}
+            {{ pg.kpi('Колбэки, требующие внимания', stats.callbacksNeedingAttention, 'ошибка или попытки исчерпаны', 'fa fa-bell', stats.callbacksNeedingAttention > 0 ? 'warning' : 'success', ea_url().setController('App\\Controller\\Admin\\CallbackDeliveryCrudController').setAction('index')) }}
         </div>
 
-        <h2 class="pg-section-title">Wallet address pool</h2>
+        <h2 class="pg-section-title">Пул адресов</h2>
         <div class="pg-grid pg-grid--kpi">
-            {{ pg.kpi('Free addresses', pool.free, null, 'fa fa-wallet', 'success', ea_url().setController('App\\Controller\\Admin\\PanelWalletAddressCrudController').setAction('index').set('filters', {status: {comparison: '=', value: 'free'}})) }}
-            {{ pg.kpi('Held addresses', pool.held, null, 'fa fa-lock', 'brand', ea_url().setController('App\\Controller\\Admin\\PanelWalletAddressCrudController').setAction('index').set('filters', {status: {comparison: '=', value: 'held'}})) }}
+            {{ pg.kpi('Свободные адреса', pool.free, null, 'fa fa-wallet', 'success', ea_url().setController('App\\Controller\\Admin\\PanelWalletAddressCrudController').setAction('index').set('filters', {status: {comparison: '=', value: 'free'}})) }}
+            {{ pg.kpi('Занятые адреса', pool.held, null, 'fa fa-lock', 'brand', ea_url().setController('App\\Controller\\Admin\\PanelWalletAddressCrudController').setAction('index').set('filters', {status: {comparison: '=', value: 'held'}})) }}
         </div>
 
-        <h2 class="pg-section-title">Requests by status</h2>
+        <h2 class="pg-section-title">Заявки по статусам</h2>
         {% set deposit_urls = {} %}
         {% for b in deposits.buckets %}{% set deposit_urls = deposit_urls|merge({(b.state): ea_url().setController('App\\Controller\\Admin\\DepositRequestCrudController').setAction('index').set('filters', {status: {comparison: '=', value: b.state}})}) %}{% endfor %}
         {% set withdrawal_urls = {} %}
         {% for b in withdrawals.buckets %}{% set withdrawal_urls = withdrawal_urls|merge({(b.state): ea_url().setController('App\\Controller\\Admin\\WithdrawalRequestCrudController').setAction('index').set('filters', {status: {comparison: '=', value: b.state}})}) %}{% endfor %}
         <div class="pg-grid pg-grid--two">
-            {{ pg.status_table('Deposit requests', 'fa fa-arrow-down', deposits, ea_url().setController('App\\Controller\\Admin\\DepositRequestCrudController').setAction('index'), deposit_urls) }}
-            {{ pg.status_table('Withdrawal requests', 'fa fa-arrow-up', withdrawals, ea_url().setController('App\\Controller\\Admin\\WithdrawalRequestCrudController').setAction('index'), withdrawal_urls) }}
+            {{ pg.status_table('Заявки на пополнение', 'fa fa-arrow-down', deposits, ea_url().setController('App\\Controller\\Admin\\DepositRequestCrudController').setAction('index'), deposit_urls) }}
+            {{ pg.status_table('Заявки на вывод', 'fa fa-arrow-up', withdrawals, ea_url().setController('App\\Controller\\Admin\\WithdrawalRequestCrudController').setAction('index'), withdrawal_urls) }}
         </div>
     </div>
 {% endblock %}

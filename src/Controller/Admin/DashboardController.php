@@ -54,17 +54,17 @@ final class DashboardController extends AbstractDashboardController
 
     public function configureMenuItems(): iterable
     {
-        yield MenuItem::linkToDashboard('Dashboard', 'fa fa-gauge-high');
+        yield MenuItem::linkToDashboard('Дашборд', 'fa fa-gauge-high');
 
-        yield MenuItem::subMenu('Requests', 'fa fa-right-left')->setSubItems([
-            MenuItem::linkTo(DepositRequestCrudController::class, 'Deposit requests', 'fa fa-arrow-down'),
-            MenuItem::linkTo(WithdrawalRequestCrudController::class, 'Withdrawal requests', 'fa fa-arrow-up'),
-            MenuItem::linkTo(CallbackDeliveryCrudController::class, 'Callback deliveries', 'fa fa-bell'),
+        yield MenuItem::subMenu('Заявки', 'fa fa-right-left')->setSubItems([
+            MenuItem::linkTo(DepositRequestCrudController::class, 'Заявки на пополнение', 'fa fa-arrow-down'),
+            MenuItem::linkTo(WithdrawalRequestCrudController::class, 'Заявки на вывод', 'fa fa-arrow-up'),
+            MenuItem::linkTo(CallbackDeliveryCrudController::class, 'Доставка колбэков', 'fa fa-bell'),
         ]);
 
-        yield MenuItem::subMenu('Panels', 'fa fa-plug')->setSubItems([
-            MenuItem::linkTo(PanelCrudController::class, 'Panels', 'fa fa-plug'),
-            MenuItem::linkTo(PanelWalletAddressCrudController::class, 'Wallet address pool', 'fa fa-wallet'),
+        yield MenuItem::subMenu('Панели', 'fa fa-plug')->setSubItems([
+            MenuItem::linkTo(PanelCrudController::class, 'Панели', 'fa fa-plug'),
+            MenuItem::linkTo(PanelWalletAddressCrudController::class, 'Пул адресов', 'fa fa-wallet'),
         ]);
     }
 }

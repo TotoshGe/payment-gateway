@@ -68,7 +68,7 @@ final class AdminThemeTest extends FunctionalTestCase
         self::assertResponseIsSuccessful();
         $html = $client->getResponse()->getContent();
         self::assertStringContainsString('pg-kpi', $html);
-        self::assertStringContainsString('Deposit requests', $html);
+        self::assertStringContainsString('Заявки на пополнение', $html);
     }
 
     public function testDepositListAndDetailRenderCopyableAndBreadcrumbs(): void

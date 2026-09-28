@@ -7,9 +7,9 @@
     {% set entity = ea_ctx.entity %}
     {% set entity_id = entity is not null ? ('' ~ entity.primaryKeyValue) : '' %}
     {% set entity_ref = entity_id|length > 12 ? '#' ~ entity_id|slice(0, 8) : (entity_id != '' ? '#' ~ entity_id : '') %}
-    <nav class="pg-crumbs" aria-label="Breadcrumb">
+    <nav class="pg-crumbs" aria-label="Хлебные крошки">
         <ol>
-            <li><a href="{{ path(ea_ctx.dashboardRouteName) }}"><i class="fa fa-house" aria-hidden="true"></i><span class="visually-hidden">Dashboard</span></a></li>
+            <li><a href="{{ path(ea_ctx.dashboardRouteName) }}"><i class="fa fa-house" aria-hidden="true"></i><span class="visually-hidden">Дашборд</span></a></li>
             {% if group %}<li class="pg-crumbs__group">{{ group.label|raw }}</li>{% endif %}
             {% if action == 'index' %}
                 <li aria-current="page">{{ crud.entityLabelInPlural|trans }}</li>
@@ -18,9 +18,9 @@
                 {% if action == 'detail' %}
                     <li aria-current="page">{{ crud.entityLabelInSingular|trans }} {{ entity_ref }}</li>
                 {% elseif action == 'edit' %}
-                    <li aria-current="page">Edit {{ entity_ref }}</li>
+                    <li aria-current="page">Редактирование {{ entity_ref }}</li>
                 {% elseif action == 'new' %}
-                    <li aria-current="page">New</li>
+                    <li aria-current="page">Новая запись</li>
                 {% elseif entity_ref != '' %}
                     <li aria-current="page">{{ entity_ref }}</li>
                 {% endif %}

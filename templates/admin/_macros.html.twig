@@ -14,21 +14,21 @@
     </{{ tag }}>
 {% endmacro %}
 
-{# Per-status breakdown card. data = {total, buckets: [{state, count}]} #}
+{# Per-status breakdown card. data = {total, buckets: [{state, label, count}]} #}
 {% macro status_table(title, icon, data, list_url, filter_urls) %}
     <section class="pg-card pg-card--brand">
         <header class="pg-card__head">
             <i class="{{ icon }}"></i>
             <span class="pg-card__title">{{ title }}</span>
             <span class="pg-count">{{ data.total }}</span>
-            {% if list_url %}<a class="pg-card__link" href="{{ list_url }}">All <i class="fa fa-arrow-right"></i></a>{% endif %}
+            {% if list_url %}<a class="pg-card__link" href="{{ list_url }}">Все <i class="fa fa-arrow-right"></i></a>{% endif %}
         </header>
         <div class="pg-table-wrap">
             <table class="pg-table">
                 <thead>
                     <tr>
-                        <th>Status</th>
-                        <th class="pg-r">Count</th>
+                        <th>Статус</th>
+                        <th class="pg-r">Количество</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -36,9 +36,9 @@
                         <tr class="{{ b.count == 0 ? 'is-empty' : '' }}">
                             <td>
                                 {% if filter_urls[b.state] is defined and b.count > 0 %}
-                                    <a class="pg-plain" href="{{ filter_urls[b.state] }}">{{ b.state }}</a>
+                                    <a class="pg-plain" href="{{ filter_urls[b.state] }}">{{ b.label|default(b.state) }}</a>
                                 {% else %}
-                                    {{ b.state }}
+                                    {{ b.label|default(b.state) }}
                                 {% endif %}
                             </td>
                             <td class="pg-r pg-num">

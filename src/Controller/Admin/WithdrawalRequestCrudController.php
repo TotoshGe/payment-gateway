@@ -5,6 +5,7 @@ declare(strict_types=1);
 namespace App\Controller\Admin;
 
 use App\Entity\WithdrawalRequest;
+use App\Enum\CallbackDeliveryStatus;
 use App\Enum\PaymentRequestStatus;
 use App\Panel\TestPanel\TestPanelSimulationException;
 use App\Panel\TestPanel\TestPanelSimulator;
@@ -45,36 +46,36 @@ final class WithdrawalRequestCrudController extends AbstractCrudController
     public function configureCrud(Crud $crud): Crud
     {
         return $crud
-            ->setEntityLabelInSingular('Withdrawal request')
-            ->setEntityLabelInPlural('Withdrawal requests')
+            ->setEntityLabelInSingular('Заявка на вывод')
+            ->setEntityLabelInPlural('Заявки на вывод')
             ->setDefaultSort(['createdAt' => 'DESC']);
     }
 
     public function configureFields(string $pageName): iterable
     {
-        yield TextField::new('externalReference')->setTemplatePath('admin/field/copyable.html.twig');
-        yield AssociationField::new('panel');
-        yield TextField::new('currency');
-        yield TextField::new('network')->hideOnIndex();
-        yield ChoiceField::new('status')->setChoices(self::statusChoices())->renderAsBadges(self::statusBadgeTypes());
-        yield TextField::new('amount');
-        yield TextField::new('destinationAddress')->hideOnIndex()->setTemplatePath('admin/field/copyable.html.twig');
-        yield TextField::new('txHash')->hideOnIndex()->setTemplatePath('admin/field/copyable.html.twig');
-        yield TextField::new('failureReason')->hideOnIndex();
-        yield ChoiceField::new('callbackStatus')->hideOnIndex();
-        yield DateTimeField::new('createdAt');
-        yield DateTimeField::new('updatedAt')->hideOnIndex();
+        yield TextField::new('externalReference', 'Внешний референс')->setTemplatePath('admin/field/copyable.html.twig');
+        yield AssociationField::new('panel', 'Панель');
+        yield TextField::new('currency', 'Валюта');
+        yield TextField::new('network', 'Сеть')->hideOnIndex();
+        yield ChoiceField::new('status', 'Статус')->setChoices(self::statusChoices())->renderAsBadges(self::statusBadgeTypes());
+        yield TextField::new('amount', 'Сумма');
+        yield TextField::new('destinationAddress', 'Адрес получателя')->hideOnIndex()->setTemplatePath('admin/field/copyable.html.twig');
+        yield TextField::new('txHash', 'Хеш транзакции')->hideOnIndex()->setTemplatePath('admin/field/copyable.html.twig');
+        yield TextField::new('failureReason', 'Причина ошибки')->hideOnIndex();
+        yield ChoiceField::new('callbackStatus', 'Статус колбэка')->setChoices(self::callbackStatusChoices())->renderAsBadges(self::callbackStatusBadgeTypes())->hideOnIndex();
+        yield DateTimeField::new('createdAt', 'Создано');
+        yield DateTimeField::new('updatedAt', 'Обновлено')->hideOnIndex();
     }
 
     public function configureActions(Actions $actions): Actions
     {
         $actions = $actions->disable(Action::NEW, Action::DELETE, Action::EDIT);
 
-        $retry = Action::new('retry', 'Retry withdrawal')
+        $retry = Action::new('retry', 'Повторить вывод')
             ->linkToCrudAction('retry')
             ->displayIf(static fn (WithdrawalRequest $w) => PaymentRequestStatus::SUBMIT_FAILED === $w->getStatus());
 
-        $resendCallback = Action::new('resendCallback', 'Resend callback')
+        $resendCallback = Action::new('resendCallback', 'Повторить отправку колбэка')
             ->linkToCrudAction('resendCallback')
             ->displayIf(static fn (WithdrawalRequest $w) => $w->getStatus()->isTerminal());
 
@@ -85,9 +86,9 @@ final class WithdrawalRequestCrudController extends AbstractCrudController
             ->add(Crud::PAGE_DETAIL, $resendCallback);
 
         $testActions = [
-            'testProcessing' => ['Test Panel: mark processing', PaymentRequestStatus::PROCESSING],
-            'testConfirm' => ['Test Panel: confirm withdrawal', PaymentRequestStatus::COMPLETED],
-            'testFail' => ['Test Panel: fail', PaymentRequestStatus::FAILED],
+            'testProcessing' => ['Тестовая панель: в обработке', PaymentRequestStatus::PROCESSING],
+            'testConfirm' => ['Тестовая панель: подтвердить вывод', PaymentRequestStatus::COMPLETED],
+            'testFail' => ['Тестовая панель: ошибка', PaymentRequestStatus::FAILED],
         ];
         foreach ($testActions as $method => [$label, $target]) {
             $action = Action::new($method, $label)
@@ -126,9 +127,9 @@ final class WithdrawalRequestCrudController extends AbstractCrudController
 
         try {
             $this->testPanelSimulator->transitionWithdrawal($withdrawalRequest, $target);
-            $this->addFlash('success', sprintf('[TEST PANEL] Withdrawal moved to "%s" (manual; nothing was sent; Okean is called back for terminal statuses).', $target->value));
+            $this->addFlash('success', sprintf('[ТЕСТ-ПАНЕЛЬ] Заявка на вывод переведена в статус «%s» (вручную; ничего не отправлено; по терминальным статусам Okean получает колбэк).', $target->label()));
         } catch (TestPanelSimulationException $exception) {
-            $this->addFlash('danger', '[TEST PANEL] '.$exception->getMessage());
+            $this->addFlash('danger', '[ТЕСТ-ПАНЕЛЬ] '.$exception->getMessage());
         }
 
         return $this->redirect($context->getRequest()->headers->get('referer') ?? '/admin');
@@ -192,7 +193,7 @@ final class WithdrawalRequestCrudController extends AbstractCrudController
     {
         $choices = [];
         foreach (PaymentRequestStatus::cases() as $case) {
-            $choices[$case->value] = $case->value;
+            $choices[$case->label()] = $case->value;
         }
 
         return $choices;
@@ -205,6 +206,32 @@ final class WithdrawalRequestCrudController extends AbstractCrudController
     {
         $types = [];
         foreach (PaymentRequestStatus::cases() as $case) {
+            $types[$case->value] = $case->badgeType();
+        }
+
+        return $types;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private static function callbackStatusChoices(): array
+    {
+        $choices = [];
+        foreach (CallbackDeliveryStatus::cases() as $case) {
+            $choices[$case->label()] = $case->value;
+        }
+
+        return $choices;
+    }
+
+    /**
+     * @return array<string, string>
+     */
+    private static function callbackStatusBadgeTypes(): array
+    {
+        $types = [];
+        foreach (CallbackDeliveryStatus::cases() as $case) {
             $types[$case->value] = $case->badgeType();
         }
 

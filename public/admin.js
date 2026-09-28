@@ -208,9 +208,9 @@
                 window.setTimeout(function () {
                     button.classList.remove('is-done');
                 }, 1200);
-                toast('Copied');
+                toast('Скопировано');
             }, function () {
-                toast('Could not copy');
+                toast('Не удалось скопировать');
             });
         });
     }

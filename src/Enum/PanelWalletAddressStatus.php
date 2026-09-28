@@ -10,6 +10,18 @@ enum PanelWalletAddressStatus: string
     case HELD = 'held';
 
     /**
+     * Russian label for the admin UI. The stored value is the DB contract
+     * and never changes.
+     */
+    public function label(): string
+    {
+        return match ($this) {
+            self::FREE => 'Свободен',
+            self::HELD => 'Занят',
+        };
+    }
+
+    /**
      * EasyAdmin ChoiceField::renderAsBadges() severity, purely presentational
      * (admin/PanelWalletAddressCrudController).
      */
