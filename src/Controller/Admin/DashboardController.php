@@ -65,6 +65,7 @@ final class DashboardController extends AbstractDashboardController
 
         yield MenuItem::subMenu('Панели', 'fa fa-plug')->setSubItems([
             MenuItem::linkTo(PanelCrudController::class, 'Панели', 'fa fa-plug'),
+            MenuItem::linkTo(PanelRouteCrudController::class, 'Маршрутизация', 'fa fa-route'),
             MenuItem::linkTo(PanelWalletAddressCrudController::class, 'Пул адресов', 'fa fa-wallet'),
         ]);
     }

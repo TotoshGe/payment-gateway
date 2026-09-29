@@ -54,7 +54,6 @@ final class TestPanelFlowTest extends FunctionalTestCase
     {
         return $this->post($client, '/api/v1/deposits', [
             'uuid' => \Symfony\Component\Uid\Uuid::v5(\Symfony\Component\Uid\Uuid::fromString(\Symfony\Component\Uid\Uuid::NAMESPACE_OID), $reference)->toRfc4122(),
-            'panel' => 'binance_test',
             'currency' => 'USDT',
             'network' => $network,
             'expected_amount' => '100.00',
@@ -167,7 +166,6 @@ final class TestPanelFlowTest extends FunctionalTestCase
 
         $body = static fn (string $ref): array => [
             'uuid' => \Symfony\Component\Uid\Uuid::v5(\Symfony\Component\Uid\Uuid::fromString(\Symfony\Component\Uid\Uuid::NAMESPACE_OID), $ref)->toRfc4122(),
-            'panel' => 'binance_test',
             'currency' => 'USDT',
             'network' => 'TRC20',
             'amount' => '25.00',

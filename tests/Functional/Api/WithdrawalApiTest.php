@@ -16,15 +16,14 @@ final class WithdrawalApiTest extends FunctionalTestCase
 
     private function persistFakePanel(EntityManagerInterface $em, string $code = 'fake'): Panel
     {
-        $existing = $em->getRepository(Panel::class)->findOneBy(['code' => $code]);
-        if (null !== $existing) {
-            return $existing;
+        $panel = $em->getRepository(Panel::class)->findOneBy(['code' => $code]);
+        if (null === $panel) {
+            $panel = new Panel($code, 'Fake panel');
+            $panel->setActive(true);
+            $em->persist($panel);
+            $em->flush();
         }
-
-        $panel = new Panel($code, 'Fake panel');
-        $panel->setActive(true);
-        $em->persist($panel);
-        $em->flush();
+        $this->route('USDT', null, $code);
 
         return $panel;
     }
@@ -40,7 +39,6 @@ final class WithdrawalApiTest extends FunctionalTestCase
             'CONTENT_TYPE' => 'application/json',
         ], content: json_encode([
             'uuid' => \Symfony\Component\Uid\Uuid::v4()->toRfc4122(),
-            'panel' => 'fake',
             'currency' => 'USDT',
             'network' => 'TRC20',
             'amount' => '42.50',
@@ -65,7 +63,6 @@ final class WithdrawalApiTest extends FunctionalTestCase
 
         $payload = json_encode([
             'uuid' => $uuid,
-            'panel' => 'fake',
             'currency' => 'USDT',
             'network' => 'TRC20',
             'amount' => '42.50',
@@ -99,7 +96,6 @@ final class WithdrawalApiTest extends FunctionalTestCase
 
         $client->request('POST', '/api/v1/withdrawals', server: ['HTTP_X_API_KEY' => self::API_KEY, 'CONTENT_TYPE' => 'application/json'], content: json_encode([
             'uuid' => \Symfony\Component\Uid\Uuid::v4()->toRfc4122(),
-            'panel' => 'fake',
             'currency' => 'USDT',
             'network' => 'TRC20',
             'amount' => '42.50',

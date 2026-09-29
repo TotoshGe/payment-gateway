@@ -24,6 +24,7 @@ final class WithdrawalRequestService
         private readonly WithdrawalRequestRepository $withdrawalRequestRepository,
         private readonly PanelRepository $panelRepository,
         private readonly PanelRegistry $panelRegistry,
+        private readonly PanelRouter $panelRouter,
         private readonly PaymentRequestSynchronizer $synchronizer,
         private readonly CallbackDispatcher $callbackDispatcher,
         private readonly EntityManagerInterface $entityManager,
@@ -36,7 +37,7 @@ final class WithdrawalRequestService
      */
     public function createOrGetExisting(
         string $uuid,
-        string $panelCode,
+        ?string $panelCode,
         string $currency,
         ?string $network,
         string $amount,
@@ -48,9 +49,14 @@ final class WithdrawalRequestService
             return ['request' => $existing, 'created' => false];
         }
 
-        $panel = $this->panelRepository->findOneByCode($panelCode);
-        if (null === $panel || !$panel->isActive()) {
-            throw new PanelNotFoundException(sprintf('No active panel "%s".', $panelCode));
+        if (null === $panelCode) {
+            $panel = $this->panelRouter->resolve($currency, $network);
+        } else {
+            // Only internal callers/tests name a panel; the public API never does.
+            $panel = $this->panelRepository->findOneByCode($panelCode);
+            if (null === $panel || !$panel->isActive()) {
+                throw new PanelNotFoundException(sprintf('No active panel "%s".', $panelCode));
+            }
         }
 
         $clientWithdrawalId = Uuid::v4()->toRfc4122();
@@ -80,7 +86,7 @@ final class WithdrawalRequestService
             $this->entityManager->flush();
         } catch (PanelException $exception) {
             $this->logger->error('Panel rejected withdrawal submission', [
-                'panel' => $panelCode,
+                'panel' => $panel->getCode(),
                 'uuid' => $uuid,
                 'error' => $exception->getMessage(),
             ]);

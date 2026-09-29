@@ -14,3 +14,11 @@
         </td>
     </tr>
 {% endblock %}
+
+{# A list page's setHelp() text is otherwise only in a hover popover; show it inline (used by the routing page). #}
+{% block main %}
+    {% if ea.crud.helpMessage is not empty %}
+        <div class="pg-note">{{ ea.crud.helpMessage|raw }}</div>
+    {% endif %}
+    {{ parent() }}
+{% endblock %}

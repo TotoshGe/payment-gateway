@@ -11,6 +11,7 @@ use App\Enum\PaymentRequestStatus;
 use App\Repository\DepositRequestRepository;
 use App\Service\DepositRequestService;
 use App\Service\Exception\PanelNotFoundException;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Attribute\Route;
@@ -29,6 +30,7 @@ final class DepositController
         private readonly DepositRequestService $depositRequestService,
         private readonly DepositRequestRepository $depositRequestRepository,
         private readonly ValidatorInterface $validator,
+        private readonly LoggerInterface $logger,
     ) {
     }
 
@@ -42,9 +44,11 @@ final class DepositController
 
         $dto = new CreateDepositRequestDto();
         $dto->uuid = strtolower(trim((string) ($data['uuid'] ?? '')));
-        $dto->panel = (string) ($data['panel'] ?? 'binance');
+        if (isset($data['panel'])) {
+            $this->logger->warning('Ignoring deprecated "panel" in request: the panel is chosen by gateway routing.', ['sent' => $data['panel']]);
+        }
         $dto->currency = strtoupper((string) ($data['currency'] ?? ''));
-        $dto->network = isset($data['network']) ? strtoupper((string) $data['network']) : null;
+        $dto->network = isset($data['network']) && '' !== trim((string) $data['network']) ? strtoupper(trim((string) $data['network'])) : null;
         $dto->expectedAmount = (string) ($data['expected_amount'] ?? '');
 
         $violations = $this->validator->validate($dto);
@@ -55,7 +59,7 @@ final class DepositController
         try {
             $result = $this->depositRequestService->createOrGetExisting(
                 $dto->uuid,
-                $dto->panel,
+                null,
                 $dto->currency,
                 $dto->network,
                 $dto->expectedAmount,
@@ -96,6 +100,7 @@ final class DepositController
             'id' => (string) $depositRequest->getId(),
             'uuid' => $depositRequest->getUuid(),
             'status' => $depositRequest->getStatus()->value,
+            'panel' => $depositRequest->getPanel()->getCode(),
             'payments' => array_map(static fn (Payment $payment) => $payment->toArray(), $depositRequest->getPayments()->toArray()),
             'currency' => $depositRequest->getCurrency(),
             'network' => $depositRequest->getNetwork(),

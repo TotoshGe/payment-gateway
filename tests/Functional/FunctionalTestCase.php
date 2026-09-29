@@ -14,6 +14,14 @@ use Symfony\Bundle\FrameworkBundle\Test\WebTestCase;
  */
 abstract class FunctionalTestCase extends WebTestCase
 {
+    protected function route(string $currency, ?string $network, string $panelCode, bool $enabled = true): void
+    {
+        $em = self::getContainer()->get(EntityManagerInterface::class);
+        $panel = $em->getRepository(\App\Entity\Panel::class)->findOneBy(['code' => $panelCode]);
+        $em->persist(new \App\Entity\PanelRoute($currency, $network, $panel, $enabled));
+        $em->flush();
+    }
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -22,7 +30,7 @@ abstract class FunctionalTestCase extends WebTestCase
         self::bootKernel();
         $connection = self::getContainer()->get(EntityManagerInterface::class)->getConnection();
 
-        foreach (['callback_delivery', 'payment', 'deposit_request', 'withdrawal_request', 'panel_wallet_address'] as $table) {
+        foreach (['panel_route', 'callback_delivery', 'payment', 'deposit_request', 'withdrawal_request', 'panel_wallet_address'] as $table) {
             $connection->executeStatement('DELETE FROM '.$table);
         }
 

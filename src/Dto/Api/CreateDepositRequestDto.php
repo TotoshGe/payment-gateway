@@ -13,10 +13,6 @@ final class CreateDepositRequestDto
     public string $uuid = '';
 
     #[Assert\NotBlank]
-    #[Assert\Length(max: 64)]
-    public string $panel = 'binance';
-
-    #[Assert\NotBlank]
     #[Assert\Length(max: 32)]
     public string $currency = '';
 

@@ -1577,3 +1577,5 @@ a.pg-card:hover {
 
 .pg-link-list { list-style: none; margin: 0; padding: 0; }
 .pg-link-list li + li { margin-top: 4px; }
+
+.pg-note { margin: 0 0 16px; padding: 10px 14px; border-radius: 8px; background: rgba(59, 130, 246, 0.08); border: 1px solid rgba(59, 130, 246, 0.25); font-size: 0.9rem; }

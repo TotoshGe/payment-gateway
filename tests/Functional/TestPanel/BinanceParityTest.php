@@ -57,8 +57,8 @@ final class BinanceParityTest extends FunctionalTestCase
         $test = $this->runScenario('binance_test');
 
         self::assertSame($binance, $test);
-        self::assertSame(['id', 'uuid', 'status', 'payments', 'currency', 'network', 'expected_amount', 'received_amount', 'address', 'address_tag', 'expires_at'], $test['deposit_response_keys']);
-        self::assertSame(['id', 'uuid', 'status', 'payments', 'currency', 'network', 'amount', 'destination_address', 'tx_hash'], $test['withdrawal_response_keys']);
+        self::assertSame(['id', 'uuid', 'status', 'panel', 'payments', 'currency', 'network', 'expected_amount', 'received_amount', 'address', 'address_tag', 'expires_at'], $test['deposit_response_keys']);
+        self::assertSame(['id', 'uuid', 'status', 'panel', 'payments', 'currency', 'network', 'amount', 'destination_address', 'tx_hash'], $test['withdrawal_response_keys']);
     }
 
     private function resetState(): void
@@ -105,6 +105,7 @@ final class BinanceParityTest extends FunctionalTestCase
         $panel->setEncryptedCredentials(self::getContainer()->get(PanelCredentialsEncryptor::class)->encrypt(['apiKey' => 'k', 'apiSecret' => 's']));
         $em->persist($panel);
         $em->flush();
+        $this->route('USDT', 'TRC20', $code);
     }
 
     /**
@@ -164,7 +165,7 @@ final class BinanceParityTest extends FunctionalTestCase
         $isTest = 'binance_test' === $code;
         $transcript = [];
 
-        $body = ['uuid' => \Symfony\Component\Uid\Uuid::v5(\Symfony\Component\Uid\Uuid::fromString(\Symfony\Component\Uid\Uuid::NAMESPACE_OID), 'parity-dep-'.$code)->toRfc4122(), 'panel' => $code, 'currency' => 'USDT', 'network' => 'TRC20', 'expected_amount' => '100.00'];
+        $body = ['uuid' => \Symfony\Component\Uid\Uuid::v5(\Symfony\Component\Uid\Uuid::fromString(\Symfony\Component\Uid\Uuid::NAMESPACE_OID), 'parity-dep-'.$code)->toRfc4122(), 'currency' => 'USDT', 'network' => 'TRC20', 'expected_amount' => '100.00'];
         [$status, $first] = $this->call($client, 'POST', '/api/v1/deposits', $body);
         $transcript['deposit_create_http'] = $status;
         $transcript['deposit_response_keys'] = array_keys($first);
@@ -212,7 +213,7 @@ final class BinanceParityTest extends FunctionalTestCase
         $transcript['expired_status'] = $expired->getStatus()->value;
         $transcript['expired_callbacks'] = $this->callbacks($expired->getId());
 
-        $withdrawalBody = ['uuid' => \Symfony\Component\Uid\Uuid::v5(\Symfony\Component\Uid\Uuid::fromString(\Symfony\Component\Uid\Uuid::NAMESPACE_OID), 'parity-wd-'.$code)->toRfc4122(), 'panel' => $code, 'currency' => 'USDT', 'network' => 'TRC20', 'amount' => '25.00', 'destination_address' => 'TDestinationAddressXXXXXXXXXXXXXXXXX'];
+        $withdrawalBody = ['uuid' => \Symfony\Component\Uid\Uuid::v5(\Symfony\Component\Uid\Uuid::fromString(\Symfony\Component\Uid\Uuid::NAMESPACE_OID), 'parity-wd-'.$code)->toRfc4122(), 'currency' => 'USDT', 'network' => 'TRC20', 'amount' => '25.00', 'destination_address' => 'TDestinationAddressXXXXXXXXXXXXXXXXX'];
         [$status, $withdrawal] = $this->call($client, 'POST', '/api/v1/withdrawals', $withdrawalBody);
         $transcript['withdrawal_create_http'] = $status;
         $transcript['withdrawal_response_keys'] = array_keys($withdrawal);

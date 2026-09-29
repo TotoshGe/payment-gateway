@@ -326,6 +326,7 @@ class DepositRequest implements PaymentRequestInterface
         return [
             'request_id' => (string) $this->id,
             'uuid' => $this->uuid,
+            'panel' => $this->panel->getCode(),
             'status' => $this->status->value,
             'currency' => $this->currency,
             'network' => $this->network,

@@ -11,6 +11,7 @@ use App\Enum\PaymentRequestStatus;
 use App\Repository\WithdrawalRequestRepository;
 use App\Service\Exception\PanelNotFoundException;
 use App\Service\WithdrawalRequestService;
+use Psr\Log\LoggerInterface;
 use Symfony\Component\HttpFoundation\JsonResponse;
 use Symfony\Component\HttpFoundation\Request;
 use Symfony\Component\Routing\Attribute\Route;
@@ -24,6 +25,7 @@ final class WithdrawalController
         private readonly WithdrawalRequestService $withdrawalRequestService,
         private readonly WithdrawalRequestRepository $withdrawalRequestRepository,
         private readonly ValidatorInterface $validator,
+        private readonly LoggerInterface $logger,
     ) {
     }
 
@@ -37,9 +39,11 @@ final class WithdrawalController
 
         $dto = new CreateWithdrawalRequestDto();
         $dto->uuid = strtolower(trim((string) ($data['uuid'] ?? '')));
-        $dto->panel = (string) ($data['panel'] ?? 'binance');
+        if (isset($data['panel'])) {
+            $this->logger->warning('Ignoring deprecated "panel" in request: the panel is chosen by gateway routing.', ['sent' => $data['panel']]);
+        }
         $dto->currency = strtoupper((string) ($data['currency'] ?? ''));
-        $dto->network = isset($data['network']) ? strtoupper((string) $data['network']) : null;
+        $dto->network = isset($data['network']) && '' !== trim((string) $data['network']) ? strtoupper(trim((string) $data['network'])) : null;
         $dto->amount = (string) ($data['amount'] ?? '');
         $dto->destinationAddress = (string) ($data['destination_address'] ?? '');
         $dto->destinationTag = isset($data['destination_tag']) ? (string) $data['destination_tag'] : null;
@@ -52,7 +56,7 @@ final class WithdrawalController
         try {
             $result = $this->withdrawalRequestService->createOrGetExisting(
                 $dto->uuid,
-                $dto->panel,
+                null,
                 $dto->currency,
                 $dto->network,
                 $dto->amount,
@@ -95,6 +99,7 @@ final class WithdrawalController
             'id' => (string) $withdrawalRequest->getId(),
             'uuid' => $withdrawalRequest->getUuid(),
             'status' => $withdrawalRequest->getStatus()->value,
+            'panel' => $withdrawalRequest->getPanel()->getCode(),
             'payments' => array_map(static fn (Payment $payment) => $payment->toArray(), $withdrawalRequest->getPayments()->toArray()),
             'currency' => $withdrawalRequest->getCurrency(),
             'network' => $withdrawalRequest->getNetwork(),

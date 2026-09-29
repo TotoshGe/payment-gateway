@@ -22,6 +22,7 @@ final class DepositRequestService
         private readonly DepositRequestRepository $depositRequestRepository,
         private readonly PanelRepository $panelRepository,
         private readonly PanelRegistry $panelRegistry,
+        private readonly PanelRouter $panelRouter,
         private readonly WalletAddressPoolService $walletAddressPoolService,
         private readonly PaymentRepository $paymentRepository,
         private readonly PaymentRequestSynchronizer $synchronizer,
@@ -41,7 +42,7 @@ final class DepositRequestService
      */
     public function createOrGetExisting(
         string $uuid,
-        string $panelCode,
+        ?string $panelCode,
         string $currency,
         ?string $network,
         string $expectedAmount,
@@ -51,9 +52,14 @@ final class DepositRequestService
             return ['request' => $existing, 'created' => false];
         }
 
-        $panel = $this->panelRepository->findOneByCode($panelCode);
-        if (null === $panel || !$panel->isActive()) {
-            throw new PanelNotFoundException(sprintf('No active panel "%s".', $panelCode));
+        if (null === $panelCode) {
+            $panel = $this->panelRouter->resolve($currency, $network);
+        } else {
+            // Only internal callers/tests name a panel; the public API never does.
+            $panel = $this->panelRepository->findOneByCode($panelCode);
+            if (null === $panel || !$panel->isActive()) {
+                throw new PanelNotFoundException(sprintf('No active panel "%s".', $panelCode));
+            }
         }
 
         $expiresAt = (new \DateTimeImmutable())->modify(sprintf('+%d minutes', $this->addressTtlMinutes));

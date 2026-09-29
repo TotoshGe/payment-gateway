@@ -16,15 +16,14 @@ final class DepositApiTest extends FunctionalTestCase
 
     private function persistFakePanel(EntityManagerInterface $em, string $code = 'fake'): Panel
     {
-        $existing = $em->getRepository(Panel::class)->findOneBy(['code' => $code]);
-        if (null !== $existing) {
-            return $existing;
+        $panel = $em->getRepository(Panel::class)->findOneBy(['code' => $code]);
+        if (null === $panel) {
+            $panel = new Panel($code, 'Fake panel');
+            $panel->setActive(true);
+            $em->persist($panel);
+            $em->flush();
         }
-
-        $panel = new Panel($code, 'Fake panel');
-        $panel->setActive(true);
-        $em->persist($panel);
-        $em->flush();
+        $this->route('USDT', null, $code);
 
         return $panel;
     }
@@ -40,7 +39,6 @@ final class DepositApiTest extends FunctionalTestCase
             'CONTENT_TYPE' => 'application/json',
         ], content: json_encode([
             'uuid' => \Symfony\Component\Uid\Uuid::v4()->toRfc4122(),
-            'panel' => 'fake',
             'currency' => 'USDT',
             'network' => 'TRC20',
             'expected_amount' => '100.00',
@@ -61,7 +59,6 @@ final class DepositApiTest extends FunctionalTestCase
 
         $payload = json_encode([
             'uuid' => $uuid,
-            'panel' => 'fake',
             'currency' => 'USDT',
             'network' => 'TRC20',
             'expected_amount' => '100.00',
@@ -90,7 +87,6 @@ final class DepositApiTest extends FunctionalTestCase
 
         $client->request('POST', '/api/v1/deposits', server: ['HTTP_X_API_KEY' => self::API_KEY, 'CONTENT_TYPE' => 'application/json'], content: json_encode([
             'uuid' => strtoupper($uuid),
-            'panel' => 'fake',
             'currency' => 'USDT',
             'expected_amount' => '5',
         ]));
@@ -104,7 +100,7 @@ final class DepositApiTest extends FunctionalTestCase
         self::assertSame([], $data['payments']);
 
         $client->request('POST', '/api/v1/deposits', server: ['HTTP_X_API_KEY' => self::API_KEY, 'CONTENT_TYPE' => 'application/json'], content: json_encode([
-            'uuid' => $uuid, 'panel' => 'fake', 'currency' => 'USDT', 'expected_amount' => '5',
+            'uuid' => $uuid, 'currency' => 'USDT', 'expected_amount' => '5',
         ]));
         self::assertResponseStatusCodeSame(200);
         self::assertSame($data['id'], json_decode($client->getResponse()->getContent(), true)['id'], 'same uuid in another letter case is the same request');
@@ -116,8 +112,7 @@ final class DepositApiTest extends FunctionalTestCase
         $this->persistFakePanel(self::getContainer()->get(EntityManagerInterface::class));
 
         foreach ([['external_reference' => 'okean-payin-'.\Symfony\Component\Uid\Uuid::v4()->toRfc4122()], ['uuid' => 'okean-payin-'.\Symfony\Component\Uid\Uuid::v4()->toRfc4122()]] as $identity) {
-            $client->request('POST', '/api/v1/deposits', server: ['HTTP_X_API_KEY' => self::API_KEY, 'CONTENT_TYPE' => 'application/json'], content: json_encode($identity + [
-                'panel' => 'fake', 'currency' => 'USDT', 'expected_amount' => '5',
+            $client->request('POST', '/api/v1/deposits', server: ['HTTP_X_API_KEY' => self::API_KEY, 'CONTENT_TYPE' => 'application/json'], content: json_encode($identity + [ 'currency' => 'USDT', 'expected_amount' => '5',
             ]));
             self::assertResponseStatusCodeSame(422);
         }
@@ -130,21 +125,6 @@ final class DepositApiTest extends FunctionalTestCase
         $client->request('POST', '/api/v1/deposits', server: ['CONTENT_TYPE' => 'application/json'], content: '{}');
 
         self::assertResponseStatusCodeSame(401);
-    }
-
-    public function testUnknownPanelReturns422(): void
-    {
-        $client = static::createClient();
-
-        $client->request('POST', '/api/v1/deposits', server: ['HTTP_X_API_KEY' => self::API_KEY, 'CONTENT_TYPE' => 'application/json'], content: json_encode([
-            'uuid' => \Symfony\Component\Uid\Uuid::v4()->toRfc4122(),
-            'panel' => 'does-not-exist',
-            'currency' => 'USDT',
-            'network' => 'TRC20',
-            'expected_amount' => '100.00',
-        ]));
-
-        self::assertResponseStatusCodeSame(422);
     }
 
     public function testInvalidPayloadReturns422WithValidationDetails(): void
@@ -174,7 +154,6 @@ final class DepositApiTest extends FunctionalTestCase
 
         $client->request('POST', '/api/v1/deposits', server: ['HTTP_X_API_KEY' => self::API_KEY, 'CONTENT_TYPE' => 'application/json'], content: json_encode([
             'uuid' => \Symfony\Component\Uid\Uuid::v4()->toRfc4122(),
-            'panel' => 'fake',
             'currency' => 'USDT',
             'network' => 'TRC20',
             'expected_amount' => '100.00',

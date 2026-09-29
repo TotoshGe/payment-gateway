@@ -11,6 +11,7 @@ parameters:
     app.okean_callback_url: '%env(OKEAN_CALLBACK_URL)%'
     app.okean_callback_secret: '%env(OKEAN_CALLBACK_SECRET)%'
     app.panel_credentials_key: '%env(PANEL_CREDENTIALS_KEY)%'
+    app.default_panel: '%env(DEFAULT_PANEL)%'
     app.deposit_address_ttl_minutes: 90
     app.deposit_poll_interval_seconds: 15
     app.paused_deposit_timeout_hours_default: 72
@@ -60,6 +61,14 @@ services:
         arguments:
             $addressTtlMinutes: '%app.deposit_address_ttl_minutes%'
             $pausedTimeoutHours: '%app.paused_deposit_timeout_hours%'
+
+    App\Service\PanelRouter:
+        arguments:
+            $defaultPanelCode: '%app.default_panel%'
+
+    App\Controller\Admin\PanelRouteCrudController:
+        arguments:
+            $defaultPanelCode: '%app.default_panel%'
 
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones
