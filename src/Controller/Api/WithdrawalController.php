@@ -6,6 +6,7 @@ namespace App\Controller\Api;
 
 use App\Dto\Api\CreateWithdrawalRequestDto;
 use App\Entity\WithdrawalRequest;
+use App\Entity\Payment;
 use App\Enum\PaymentRequestStatus;
 use App\Repository\WithdrawalRequestRepository;
 use App\Service\Exception\PanelNotFoundException;
@@ -35,7 +36,7 @@ final class WithdrawalController
         }
 
         $dto = new CreateWithdrawalRequestDto();
-        $dto->externalReference = (string) ($data['external_reference'] ?? '');
+        $dto->uuid = strtolower(trim((string) ($data['uuid'] ?? '')));
         $dto->panel = (string) ($data['panel'] ?? 'binance');
         $dto->currency = strtoupper((string) ($data['currency'] ?? ''));
         $dto->network = isset($data['network']) ? strtoupper((string) $data['network']) : null;
@@ -50,7 +51,7 @@ final class WithdrawalController
 
         try {
             $result = $this->withdrawalRequestService->createOrGetExisting(
-                $dto->externalReference,
+                $dto->uuid,
                 $dto->panel,
                 $dto->currency,
                 $dto->network,
@@ -92,8 +93,9 @@ final class WithdrawalController
     {
         return [
             'id' => (string) $withdrawalRequest->getId(),
-            'external_reference' => $withdrawalRequest->getExternalReference(),
+            'uuid' => $withdrawalRequest->getUuid(),
             'status' => $withdrawalRequest->getStatus()->value,
+            'payments' => array_map(static fn (Payment $payment) => $payment->toArray(), $withdrawalRequest->getPayments()->toArray()),
             'currency' => $withdrawalRequest->getCurrency(),
             'network' => $withdrawalRequest->getNetwork(),
             'amount' => $withdrawalRequest->getAmount(),

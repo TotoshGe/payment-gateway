@@ -1,0 +1,12 @@
+{% if field.value is empty %}
+    <span class="pg-muted">—</span>
+{% else %}
+    <ul class="pg-link-list">
+        {% for payment in field.value %}
+            <li>
+                <a href="{{ ea_url().setController('App\\Controller\\Admin\\PaymentCrudController').setAction('detail').setEntityId(payment.id) }}">{{ payment }}</a>
+                <span class="badge badge-secondary">{{ payment.status.label }}</span>
+            </li>
+        {% endfor %}
+    </ul>
+{% endif %}

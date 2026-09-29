@@ -39,7 +39,7 @@ final class WithdrawalApiTest extends FunctionalTestCase
             'HTTP_X_API_KEY' => self::API_KEY,
             'CONTENT_TYPE' => 'application/json',
         ], content: json_encode([
-            'external_reference' => 'okean-payout-'.uniqid(),
+            'uuid' => \Symfony\Component\Uid\Uuid::v4()->toRfc4122(),
             'panel' => 'fake',
             'currency' => 'USDT',
             'network' => 'TRC20',
@@ -50,17 +50,21 @@ final class WithdrawalApiTest extends FunctionalTestCase
         self::assertResponseStatusCodeSame(201);
         $data = json_decode($client->getResponse()->getContent(), true);
         self::assertSame('submitted', $data['status']);
+        self::assertCount(1, $data['payments']);
+        self::assertSame('pending', $data['payments'][0]['status']);
+        self::assertSame('42.50', $data['payments'][0]['amount']);
+        self::assertSame('USDT', $data['payments'][0]['currency']);
     }
 
-    public function testCreateWithdrawalRequestIsIdempotentByExternalReference(): void
+    public function testCreateWithdrawalRequestIsIdempotentByUuid(): void
     {
         $client = static::createClient();
         $em = self::getContainer()->get(EntityManagerInterface::class);
         $this->persistFakePanel($em);
-        $externalReference = 'okean-payout-'.uniqid();
+        $uuid = \Symfony\Component\Uid\Uuid::v4()->toRfc4122();
 
         $payload = json_encode([
-            'external_reference' => $externalReference,
+            'uuid' => $uuid,
             'panel' => 'fake',
             'currency' => 'USDT',
             'network' => 'TRC20',
@@ -80,7 +84,7 @@ final class WithdrawalApiTest extends FunctionalTestCase
 
         /** @var WithdrawalRequestRepository $repository */
         $repository = self::getContainer()->get(WithdrawalRequestRepository::class);
-        self::assertCount(1, $repository->findBy(['externalReference' => $externalReference]));
+        self::assertCount(1, $repository->findBy(['uuid' => $uuid]));
     }
 
     public function testPanelRejectionResultsInSubmitFailedWith502(): void
@@ -94,7 +98,7 @@ final class WithdrawalApiTest extends FunctionalTestCase
         $fakePanel->setNextWithdrawalException(new \App\Panel\Exception\PanelException('insufficient balance'));
 
         $client->request('POST', '/api/v1/withdrawals', server: ['HTTP_X_API_KEY' => self::API_KEY, 'CONTENT_TYPE' => 'application/json'], content: json_encode([
-            'external_reference' => 'okean-payout-'.uniqid(),
+            'uuid' => \Symfony\Component\Uid\Uuid::v4()->toRfc4122(),
             'panel' => 'fake',
             'currency' => 'USDT',
             'network' => 'TRC20',

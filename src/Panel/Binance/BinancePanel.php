@@ -122,6 +122,21 @@ class BinancePanel extends AbstractHttpPanel implements PanelInterface
                     continue;
                 }
 
+                // Pooled addresses are reused, and hisrec returns the last 7
+                // days: a transfer that predates this request belongs to an
+                // earlier holder of the address, never link it.
+                if (isset($deposit['insertTime']) && (int) $deposit['insertTime'] < $matched->getCreatedAt()->getTimestamp() * 1000) {
+                    $this->logger->warning('Ignoring a transfer to a pooled address that predates its current request (unattributed funds, needs manual reconciliation)', [
+                        'panel' => $panel->getCode(),
+                        'address' => $address,
+                        'txId' => $deposit['txId'] ?? null,
+                        'amount' => $deposit['amount'] ?? null,
+                        'requestId' => (string) $matched->getId(),
+                    ]);
+
+                    continue;
+                }
+
                 $status = BinanceStatusMapper::depositStatus((int) ($deposit['status'] ?? -1));
                 if (null === $status) {
                     continue;
@@ -189,7 +204,7 @@ class BinancePanel extends AbstractHttpPanel implements PanelInterface
                 panelWithdrawalReference: (string) ($withdrawal['id'] ?? ''),
                 status: $status,
                 txHash: isset($withdrawal['txId']) && '' !== $withdrawal['txId'] ? (string) $withdrawal['txId'] : null,
-                failureReason: \App\Enum\PaymentRequestStatus::FAILED === $status ? 'Binance withdraw status '.($withdrawal['status'] ?? '?') : null,
+                failureReason: $status->isFinal() && \App\Enum\PaymentStatus::COMPLETED !== $status ? 'Binance withdraw status '.($withdrawal['status'] ?? '?') : null,
             );
         }
     }

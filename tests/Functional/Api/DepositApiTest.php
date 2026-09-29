@@ -39,7 +39,7 @@ final class DepositApiTest extends FunctionalTestCase
             'HTTP_X_API_KEY' => self::API_KEY,
             'CONTENT_TYPE' => 'application/json',
         ], content: json_encode([
-            'external_reference' => 'okean-'.uniqid(),
+            'uuid' => \Symfony\Component\Uid\Uuid::v4()->toRfc4122(),
             'panel' => 'fake',
             'currency' => 'USDT',
             'network' => 'TRC20',
@@ -52,15 +52,15 @@ final class DepositApiTest extends FunctionalTestCase
         self::assertSame('fake-address-0', $data['address']);
     }
 
-    public function testCreateDepositRequestIsIdempotentByExternalReference(): void
+    public function testCreateDepositRequestIsIdempotentByUuid(): void
     {
         $client = static::createClient();
         $em = self::getContainer()->get(EntityManagerInterface::class);
         $this->persistFakePanel($em);
-        $externalReference = 'okean-'.uniqid();
+        $uuid = \Symfony\Component\Uid\Uuid::v4()->toRfc4122();
 
         $payload = json_encode([
-            'external_reference' => $externalReference,
+            'uuid' => $uuid,
             'panel' => 'fake',
             'currency' => 'USDT',
             'network' => 'TRC20',
@@ -79,7 +79,48 @@ final class DepositApiTest extends FunctionalTestCase
 
         /** @var DepositRequestRepository $repository */
         $repository = self::getContainer()->get(DepositRequestRepository::class);
-        self::assertCount(1, $repository->findBy(['externalReference' => $externalReference]), 'must not create a second row for a retried request');
+        self::assertCount(1, $repository->findBy(['uuid' => $uuid]), 'must not create a second row for a retried request');
+    }
+
+    public function testResponseCarriesOkeanUuidAndNoPaymentsYetAndNetworkIsOptional(): void
+    {
+        $client = static::createClient();
+        $this->persistFakePanel(self::getContainer()->get(EntityManagerInterface::class));
+        $uuid = \Symfony\Component\Uid\Uuid::v4()->toRfc4122();
+
+        $client->request('POST', '/api/v1/deposits', server: ['HTTP_X_API_KEY' => self::API_KEY, 'CONTENT_TYPE' => 'application/json'], content: json_encode([
+            'uuid' => strtoupper($uuid),
+            'panel' => 'fake',
+            'currency' => 'USDT',
+            'expected_amount' => '5',
+        ]));
+
+        self::assertResponseStatusCodeSame(201);
+        $data = json_decode($client->getResponse()->getContent(), true);
+        self::assertSame($uuid, $data['uuid'], 'the uuid is normalised to lower case');
+        self::assertArrayNotHasKey('external_reference', $data);
+        self::assertNotSame($uuid, $data['id'], 'id is the gateway own key, uuid is the Okean one');
+        self::assertNull($data['network']);
+        self::assertSame([], $data['payments']);
+
+        $client->request('POST', '/api/v1/deposits', server: ['HTTP_X_API_KEY' => self::API_KEY, 'CONTENT_TYPE' => 'application/json'], content: json_encode([
+            'uuid' => $uuid, 'panel' => 'fake', 'currency' => 'USDT', 'expected_amount' => '5',
+        ]));
+        self::assertResponseStatusCodeSame(200);
+        self::assertSame($data['id'], json_decode($client->getResponse()->getContent(), true)['id'], 'same uuid in another letter case is the same request');
+    }
+
+    public function testLegacyExternalReferenceAndNonUuidAreRejected(): void
+    {
+        $client = static::createClient();
+        $this->persistFakePanel(self::getContainer()->get(EntityManagerInterface::class));
+
+        foreach ([['external_reference' => 'okean-payin-'.\Symfony\Component\Uid\Uuid::v4()->toRfc4122()], ['uuid' => 'okean-payin-'.\Symfony\Component\Uid\Uuid::v4()->toRfc4122()]] as $identity) {
+            $client->request('POST', '/api/v1/deposits', server: ['HTTP_X_API_KEY' => self::API_KEY, 'CONTENT_TYPE' => 'application/json'], content: json_encode($identity + [
+                'panel' => 'fake', 'currency' => 'USDT', 'expected_amount' => '5',
+            ]));
+            self::assertResponseStatusCodeSame(422);
+        }
     }
 
     public function testMissingApiKeyReturns401(): void
@@ -96,7 +137,7 @@ final class DepositApiTest extends FunctionalTestCase
         $client = static::createClient();
 
         $client->request('POST', '/api/v1/deposits', server: ['HTTP_X_API_KEY' => self::API_KEY, 'CONTENT_TYPE' => 'application/json'], content: json_encode([
-            'external_reference' => 'okean-'.uniqid(),
+            'uuid' => \Symfony\Component\Uid\Uuid::v4()->toRfc4122(),
             'panel' => 'does-not-exist',
             'currency' => 'USDT',
             'network' => 'TRC20',
@@ -111,7 +152,7 @@ final class DepositApiTest extends FunctionalTestCase
         $client = static::createClient();
 
         $client->request('POST', '/api/v1/deposits', server: ['HTTP_X_API_KEY' => self::API_KEY, 'CONTENT_TYPE' => 'application/json'], content: json_encode([
-            'external_reference' => '',
+            'uuid' => 'not-a-uuid',
             'currency' => '',
             'expected_amount' => 'not-a-number',
         ]));
@@ -132,7 +173,7 @@ final class DepositApiTest extends FunctionalTestCase
         $fakePanel->setMaxSlots(0);
 
         $client->request('POST', '/api/v1/deposits', server: ['HTTP_X_API_KEY' => self::API_KEY, 'CONTENT_TYPE' => 'application/json'], content: json_encode([
-            'external_reference' => 'okean-'.uniqid(),
+            'uuid' => \Symfony\Component\Uid\Uuid::v4()->toRfc4122(),
             'panel' => 'fake',
             'currency' => 'USDT',
             'network' => 'TRC20',

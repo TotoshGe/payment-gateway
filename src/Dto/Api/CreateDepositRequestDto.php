@@ -9,8 +9,8 @@ use Symfony\Component\Validator\Constraints as Assert;
 final class CreateDepositRequestDto
 {
     #[Assert\NotBlank]
-    #[Assert\Length(max: 190)]
-    public string $externalReference = '';
+    #[Assert\Uuid(message: 'uuid must be a valid UUID.')]
+    public string $uuid = '';
 
     #[Assert\NotBlank]
     #[Assert\Length(max: 64)]

@@ -20,9 +20,9 @@ class WithdrawalRequestRepository extends ServiceEntityRepository
         parent::__construct($registry, WithdrawalRequest::class);
     }
 
-    public function findOneByExternalReference(string $externalReference): ?WithdrawalRequest
+    public function findOneByUuid(string $uuid): ?WithdrawalRequest
     {
-        return $this->findOneBy(['externalReference' => $externalReference]);
+        return $this->findOneBy(['uuid' => $uuid]);
     }
 
     /**

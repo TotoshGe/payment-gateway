@@ -108,7 +108,7 @@ class PollWithdrawalsCommand extends Command
             foreach ($driver->checkWithdrawals($panel, $activeRequests) as $update) {
                 foreach ($byClientId as $request) {
                     if ($request->getPanelWithdrawalReference() === $update->panelWithdrawalReference) {
-                        $this->withdrawalRequestService->applyStatusUpdate($request, $update->status, $update->txHash, $update->failureReason);
+                        $this->withdrawalRequestService->applyPaymentUpdate($request, $update->status, $update->txHash, $update->failureReason);
                         break;
                     }
                 }

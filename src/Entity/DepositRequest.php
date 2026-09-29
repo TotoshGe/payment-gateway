@@ -6,7 +6,10 @@ namespace App\Entity;
 
 use App\Enum\CallbackDeliveryStatus;
 use App\Enum\PaymentRequestStatus;
+use App\Enum\PaymentStatus;
 use App\Repository\DepositRequestRepository;
+use Doctrine\Common\Collections\ArrayCollection;
+use Doctrine\Common\Collections\Collection;
 use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Component\Uid\Uuid;
@@ -20,8 +23,12 @@ class DepositRequest implements PaymentRequestInterface
     #[ORM\Column(type: 'uuid', unique: true)]
     private Uuid $id;
 
+    /**
+     * The Okean-side UUID of the exchange record (idempotency key). Distinct
+     * from `id`, which is this service's own primary key.
+     */
     #[ORM\Column(length: 190, unique: true)]
-    private string $externalReference;
+    private string $uuid;
 
     #[ORM\ManyToOne(targetEntity: Panel::class)]
     #[ORM\JoinColumn(nullable: false)]
@@ -61,11 +68,20 @@ class DepositRequest implements PaymentRequestInterface
     #[ORM\Column]
     private \DateTimeImmutable $expiresAt;
 
+    /** When the request last entered PAUSED; drives the paused-deposit timeout. */
+    #[ORM\Column(nullable: true)]
+    private ?\DateTimeImmutable $pausedAt = null;
+
     #[ORM\Column(nullable: true)]
     private ?\DateTimeImmutable $lastPolledAt = null;
 
     #[ORM\Column(length: 16, enumType: CallbackDeliveryStatus::class)]
     private CallbackDeliveryStatus $callbackStatus;
+
+    /** @var Collection<int, Payment> */
+    #[ORM\OneToMany(targetEntity: Payment::class, mappedBy: 'depositRequest')]
+    #[ORM\OrderBy(['createdAt' => 'ASC'])]
+    private Collection $payments;
 
     #[ORM\Column]
     private \DateTimeImmutable $createdAt;
@@ -74,7 +90,7 @@ class DepositRequest implements PaymentRequestInterface
     private \DateTimeImmutable $updatedAt;
 
     public function __construct(
-        string $externalReference,
+        string $uuid,
         Panel $panel,
         string $currency,
         ?string $network,
@@ -82,7 +98,7 @@ class DepositRequest implements PaymentRequestInterface
         \DateTimeImmutable $expiresAt,
     ) {
         $this->id = Uuid::v7();
-        $this->externalReference = $externalReference;
+        $this->uuid = $uuid;
         $this->panel = $panel;
         $this->currency = $currency;
         $this->network = $network;
@@ -90,6 +106,7 @@ class DepositRequest implements PaymentRequestInterface
         $this->expiresAt = $expiresAt;
         $this->status = PaymentRequestStatus::NEW;
         $this->callbackStatus = CallbackDeliveryStatus::PENDING;
+        $this->payments = new ArrayCollection();
         $this->createdAt = new \DateTimeImmutable();
         $this->updatedAt = new \DateTimeImmutable();
     }
@@ -99,9 +116,9 @@ class DepositRequest implements PaymentRequestInterface
         return $this->id;
     }
 
-    public function getExternalReference(): string
+    public function getUuid(): string
     {
-        return $this->externalReference;
+        return $this->uuid;
     }
 
     public function getPanel(): Panel
@@ -170,6 +187,11 @@ class DepositRequest implements PaymentRequestInterface
 
     public function setStatus(PaymentRequestStatus $status): static
     {
+        if (PaymentRequestStatus::PAUSED === $status) {
+            $this->pausedAt ??= new \DateTimeImmutable();
+        } else {
+            $this->pausedAt = null;
+        }
         $this->status = $status;
         $this->touch();
 
@@ -207,6 +229,11 @@ class DepositRequest implements PaymentRequestInterface
         return $this->expiresAt;
     }
 
+    public function getPausedAt(): ?\DateTimeImmutable
+    {
+        return $this->pausedAt;
+    }
+
     public function getLastPolledAt(): ?\DateTimeImmutable
     {
         return $this->lastPolledAt;
@@ -228,6 +255,40 @@ class DepositRequest implements PaymentRequestInterface
     {
         $this->callbackStatus = $callbackStatus;
         $this->touch();
+
+        return $this;
+    }
+
+    /**
+     * @return Collection<int, Payment>
+     */
+    public function getPayments(): Collection
+    {
+        return $this->payments;
+    }
+
+    /**
+     * The payment the request currently reflects: the completed one if any,
+     * otherwise the most recent.
+     */
+    public function getLeadPayment(): ?Payment
+    {
+        $lead = null;
+        foreach ($this->payments as $payment) {
+            if (PaymentStatus::COMPLETED === $payment->getStatus()) {
+                return $payment;
+            }
+            $lead = $payment;
+        }
+
+        return $lead;
+    }
+
+    public function addPayment(Payment $payment): static
+    {
+        if (!$this->payments->contains($payment)) {
+            $this->payments->add($payment);
+        }
 
         return $this;
     }
@@ -264,11 +325,12 @@ class DepositRequest implements PaymentRequestInterface
     {
         return [
             'request_id' => (string) $this->id,
-            'external_reference' => $this->externalReference,
+            'uuid' => $this->uuid,
             'status' => $this->status->value,
             'currency' => $this->currency,
             'network' => $this->network,
             'amount' => $this->receivedAmount ?? $this->expectedAmount,
+            'payment' => $this->getLeadPayment()?->toArray(),
         ];
     }
 
@@ -278,8 +340,14 @@ class DepositRequest implements PaymentRequestInterface
             PaymentRequestStatus::COMPLETED => 'deposit.received',
             PaymentRequestStatus::EXPIRED => 'deposit.expired',
             PaymentRequestStatus::SUBMIT_FAILED, PaymentRequestStatus::FAILED => 'deposit.failed',
+            PaymentRequestStatus::PAUSED => 'deposit.paused',
             default => 'deposit.updated',
         };
+    }
+
+    public function __toString(): string
+    {
+        return $this->uuid;
     }
 
     private function touch(): void

@@ -6,6 +6,7 @@ namespace App\Controller\Api;
 
 use App\Dto\Api\CreateDepositRequestDto;
 use App\Entity\DepositRequest;
+use App\Entity\Payment;
 use App\Enum\PaymentRequestStatus;
 use App\Repository\DepositRequestRepository;
 use App\Service\DepositRequestService;
@@ -40,7 +41,7 @@ final class DepositController
         }
 
         $dto = new CreateDepositRequestDto();
-        $dto->externalReference = (string) ($data['external_reference'] ?? '');
+        $dto->uuid = strtolower(trim((string) ($data['uuid'] ?? '')));
         $dto->panel = (string) ($data['panel'] ?? 'binance');
         $dto->currency = strtoupper((string) ($data['currency'] ?? ''));
         $dto->network = isset($data['network']) ? strtoupper((string) $data['network']) : null;
@@ -53,7 +54,7 @@ final class DepositController
 
         try {
             $result = $this->depositRequestService->createOrGetExisting(
-                $dto->externalReference,
+                $dto->uuid,
                 $dto->panel,
                 $dto->currency,
                 $dto->network,
@@ -93,8 +94,9 @@ final class DepositController
     {
         return [
             'id' => (string) $depositRequest->getId(),
-            'external_reference' => $depositRequest->getExternalReference(),
+            'uuid' => $depositRequest->getUuid(),
             'status' => $depositRequest->getStatus()->value,
+            'payments' => array_map(static fn (Payment $payment) => $payment->toArray(), $depositRequest->getPayments()->toArray()),
             'currency' => $depositRequest->getCurrency(),
             'network' => $depositRequest->getNetwork(),
             'expected_amount' => $depositRequest->getExpectedAmount(),

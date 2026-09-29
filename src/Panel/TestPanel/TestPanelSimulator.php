@@ -8,6 +8,7 @@ use App\Entity\DepositRequest;
 use App\Entity\Panel;
 use App\Entity\WithdrawalRequest;
 use App\Enum\PaymentRequestStatus;
+use App\Enum\PaymentStatus;
 use App\Service\DepositRequestService;
 use App\Service\WithdrawalRequestService;
 use Psr\Log\LoggerInterface;
@@ -21,18 +22,19 @@ use Psr\Log\LoggerInterface;
  * Only for requests on the test panel (code binance_test). The transitions
  * offered are the ones BinancePanel's pollers can produce: a deposit goes
  * RECEIVED/COMPLETED or expires (deposits never FAIL on Binance); a withdrawal
- * goes PROCESSING/COMPLETED/FAILED.
+ * goes PROCESSING/COMPLETED/FAILED. PAUSED means "the payment was cancelled":
+ * the simulator drives the payment, the request status follows from it.
  */
 final class TestPanelSimulator
 {
     private const DEPOSIT_TRANSITIONS = [
         'awaiting_payment' => [PaymentRequestStatus::RECEIVED, PaymentRequestStatus::COMPLETED, PaymentRequestStatus::EXPIRED],
-        'received' => [PaymentRequestStatus::COMPLETED],
+        'received' => [PaymentRequestStatus::COMPLETED, PaymentRequestStatus::PAUSED],
     ];
 
     private const WITHDRAWAL_TRANSITIONS = [
-        'submitted' => [PaymentRequestStatus::PROCESSING, PaymentRequestStatus::COMPLETED, PaymentRequestStatus::FAILED],
-        'processing' => [PaymentRequestStatus::COMPLETED, PaymentRequestStatus::FAILED],
+        'submitted' => [PaymentRequestStatus::PROCESSING, PaymentRequestStatus::COMPLETED, PaymentRequestStatus::FAILED, PaymentRequestStatus::PAUSED],
+        'processing' => [PaymentRequestStatus::COMPLETED, PaymentRequestStatus::FAILED, PaymentRequestStatus::PAUSED],
     ];
 
     public function __construct(
@@ -98,12 +100,19 @@ final class TestPanelSimulator
             return;
         }
 
-        $this->depositRequestService->applyStatusUpdate(
+        $paymentStatus = match ($target) {
+            PaymentRequestStatus::COMPLETED => PaymentStatus::COMPLETED,
+            PaymentRequestStatus::PAUSED => PaymentStatus::CANCELLED,
+            default => PaymentStatus::CONFIRMING,
+        };
+
+        $this->depositRequestService->applyPaymentUpdate(
             $request,
-            $target,
-            $amount ?? $request->getExpectedAmount(),
-            PaymentRequestStatus::COMPLETED === $target ? 12 : 1,
+            $paymentStatus,
+            $amount ?? $request->getReceivedAmount() ?? $request->getExpectedAmount(),
+            PaymentStatus::COMPLETED === $paymentStatus ? 12 : 1,
             TestPanel::fakeDepositReference((string) $request->getId()),
+            PaymentStatus::CANCELLED === $paymentStatus ? 'Test Panel: simulated cancellation' : null,
         );
     }
 
@@ -126,11 +135,22 @@ final class TestPanelSimulator
             'to' => $target->value,
         ]);
 
-        $this->withdrawalRequestService->applyStatusUpdate(
+        $paymentStatus = match ($target) {
+            PaymentRequestStatus::COMPLETED => PaymentStatus::COMPLETED,
+            PaymentRequestStatus::FAILED => PaymentStatus::FAILED,
+            PaymentRequestStatus::PAUSED => PaymentStatus::CANCELLED,
+            default => PaymentStatus::CONFIRMING,
+        };
+
+        $this->withdrawalRequestService->applyPaymentUpdate(
             $request,
-            $target,
-            PaymentRequestStatus::COMPLETED === $target ? TestPanel::fakeTxHash((string) $request->getId()) : null,
-            PaymentRequestStatus::FAILED === $target ? 'Test Panel: simulated failure' : null,
+            $paymentStatus,
+            PaymentStatus::COMPLETED === $paymentStatus ? TestPanel::fakeTxHash((string) $request->getId()) : null,
+            match ($paymentStatus) {
+                PaymentStatus::FAILED => 'Test Panel: simulated failure',
+                PaymentStatus::CANCELLED => 'Test Panel: simulated cancellation',
+                default => null,
+            },
         );
     }
 

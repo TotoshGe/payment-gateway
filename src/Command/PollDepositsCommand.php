@@ -4,6 +4,7 @@ declare(strict_types=1);
 
 namespace App\Command;
 
+use App\Enum\PaymentRequestStatus;
 use App\Panel\Exception\PanelException;
 use App\Panel\PanelRegistry;
 use App\Repository\DepositRequestRepository;
@@ -92,7 +93,7 @@ class PollDepositsCommand extends Command
 
     private function runCycle(\App\Entity\Panel $panel, SymfonyStyle $io): void
     {
-        $activeRequests = $this->depositRequestRepository->findAwaitingPaymentForPanel($panel);
+        $activeRequests = $this->depositRequestRepository->findPollableForPanel($panel);
         $now = new \DateTimeImmutable();
 
         if ([] === $activeRequests) {
@@ -114,7 +115,7 @@ class PollDepositsCommand extends Command
                     continue;
                 }
 
-                $this->depositRequestService->applyStatusUpdate(
+                $this->depositRequestService->applyPaymentUpdate(
                     $request,
                     $update->status,
                     $update->observedAmount,
@@ -131,7 +132,9 @@ class PollDepositsCommand extends Command
         }
 
         foreach ($activeRequests as $request) {
-            if ($request->getExpiresAt() < $now) {
+            if (PaymentRequestStatus::PAUSED === $request->getStatus()) {
+                $this->depositRequestService->expirePaused($request, $now);
+            } elseif ($request->getExpiresAt() < $now) {
                 $this->depositRequestService->expire($request);
             }
         }

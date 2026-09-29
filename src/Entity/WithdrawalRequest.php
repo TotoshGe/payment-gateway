@@ -7,6 +7,8 @@ namespace App\Entity;
 use App\Enum\CallbackDeliveryStatus;
 use App\Enum\PaymentRequestStatus;
 use App\Repository\WithdrawalRequestRepository;
+use Doctrine\Common\Collections\ArrayCollection;
+use Doctrine\Common\Collections\Collection;
 use Doctrine\DBAL\Types\Types;
 use Doctrine\ORM\Mapping as ORM;
 use Symfony\Component\Uid\Uuid;
@@ -20,8 +22,12 @@ class WithdrawalRequest implements PaymentRequestInterface
     #[ORM\Column(type: 'uuid', unique: true)]
     private Uuid $id;
 
+    /**
+     * The Okean-side UUID of the exchange record (idempotency key). Distinct
+     * from `id`, which is this service's own primary key.
+     */
     #[ORM\Column(length: 190, unique: true)]
-    private string $externalReference;
+    private string $uuid;
 
     #[ORM\ManyToOne(targetEntity: Panel::class)]
     #[ORM\JoinColumn(nullable: false)]
@@ -68,6 +74,11 @@ class WithdrawalRequest implements PaymentRequestInterface
     #[ORM\Column(length: 16, enumType: CallbackDeliveryStatus::class)]
     private CallbackDeliveryStatus $callbackStatus;
 
+    /** @var Collection<int, Payment> */
+    #[ORM\OneToMany(targetEntity: Payment::class, mappedBy: 'withdrawalRequest')]
+    #[ORM\OrderBy(['createdAt' => 'ASC'])]
+    private Collection $payments;
+
     #[ORM\Column]
     private \DateTimeImmutable $createdAt;
 
@@ -75,7 +86,7 @@ class WithdrawalRequest implements PaymentRequestInterface
     private \DateTimeImmutable $updatedAt;
 
     public function __construct(
-        string $externalReference,
+        string $uuid,
         Panel $panel,
         string $currency,
         ?string $network,
@@ -85,7 +96,7 @@ class WithdrawalRequest implements PaymentRequestInterface
         string $clientWithdrawalId,
     ) {
         $this->id = Uuid::v7();
-        $this->externalReference = $externalReference;
+        $this->uuid = $uuid;
         $this->panel = $panel;
         $this->currency = $currency;
         $this->network = $network;
@@ -95,6 +106,7 @@ class WithdrawalRequest implements PaymentRequestInterface
         $this->clientWithdrawalId = $clientWithdrawalId;
         $this->status = PaymentRequestStatus::NEW;
         $this->callbackStatus = CallbackDeliveryStatus::PENDING;
+        $this->payments = new ArrayCollection();
         $this->createdAt = new \DateTimeImmutable();
         $this->updatedAt = new \DateTimeImmutable();
     }
@@ -104,9 +116,9 @@ class WithdrawalRequest implements PaymentRequestInterface
         return $this->id;
     }
 
-    public function getExternalReference(): string
+    public function getUuid(): string
     {
-        return $this->externalReference;
+        return $this->uuid;
     }
 
     public function getPanel(): Panel
@@ -221,6 +233,30 @@ class WithdrawalRequest implements PaymentRequestInterface
         return $this;
     }
 
+    /**
+     * @return Collection<int, Payment>
+     */
+    public function getPayments(): Collection
+    {
+        return $this->payments;
+    }
+
+    public function getLeadPayment(): ?Payment
+    {
+        $last = $this->payments->last();
+
+        return false === $last ? null : $last;
+    }
+
+    public function addPayment(Payment $payment): static
+    {
+        if (!$this->payments->contains($payment)) {
+            $this->payments->add($payment);
+        }
+
+        return $this;
+    }
+
     public function getCreatedAt(): \DateTimeImmutable
     {
         return $this->createdAt;
@@ -240,12 +276,13 @@ class WithdrawalRequest implements PaymentRequestInterface
     {
         return [
             'request_id' => (string) $this->id,
-            'external_reference' => $this->externalReference,
+            'uuid' => $this->uuid,
             'status' => $this->status->value,
             'currency' => $this->currency,
             'network' => $this->network,
             'amount' => $this->amount,
             'tx_hash' => $this->txHash,
+            'payment' => $this->getLeadPayment()?->toArray(),
         ];
     }
 
@@ -254,8 +291,14 @@ class WithdrawalRequest implements PaymentRequestInterface
         return match ($this->status) {
             PaymentRequestStatus::COMPLETED => 'withdrawal.completed',
             PaymentRequestStatus::FAILED, PaymentRequestStatus::SUBMIT_FAILED => 'withdrawal.failed',
+            PaymentRequestStatus::PAUSED => 'withdrawal.paused',
             default => 'withdrawal.updated',
         };
+    }
+
+    public function __toString(): string
+    {
+        return $this->uuid;
     }
 
     private function touch(): void

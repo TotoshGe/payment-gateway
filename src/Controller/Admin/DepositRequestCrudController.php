@@ -53,7 +53,7 @@ final class DepositRequestCrudController extends AbstractCrudController
 
     public function configureFields(string $pageName): iterable
     {
-        yield TextField::new('externalReference', 'Внешний референс')->setTemplatePath('admin/field/copyable.html.twig');
+        yield TextField::new('uuid', 'UUID (Okean)')->setTemplatePath('admin/field/copyable.html.twig');
         yield AssociationField::new('panel', 'Панель');
         yield TextField::new('currency', 'Валюта');
         yield TextField::new('network', 'Сеть')->hideOnIndex();
@@ -61,6 +61,7 @@ final class DepositRequestCrudController extends AbstractCrudController
         yield TextField::new('expectedAmount', 'Ожидаемая сумма');
         yield TextField::new('receivedAmount', 'Полученная сумма')->hideOnIndex();
         yield TextField::new('address', 'Адрес')->hideOnIndex()->setTemplatePath('admin/field/copyable.html.twig');
+        yield AssociationField::new('payments', 'Платежи')->onlyOnDetail()->setTemplatePath('admin/field/payments.html.twig');
         yield ChoiceField::new('callbackStatus', 'Статус колбэка')->setChoices(self::callbackStatusChoices())->renderAsBadges(self::callbackStatusBadgeTypes())->hideOnIndex();
         yield DateTimeField::new('expiresAt', 'Истекает')->hideOnIndex();
         yield DateTimeField::new('lastPolledAt', 'Последний опрос')->hideOnIndex();
@@ -80,7 +81,13 @@ final class DepositRequestCrudController extends AbstractCrudController
             ->linkToCrudAction('resendCallback')
             ->displayIf(static fn (DepositRequest $d) => $d->getStatus()->isTerminal());
 
+        $resume = Action::new('resume', 'Возобновить ожидание')
+            ->linkToCrudAction('resume')
+            ->displayIf(static fn (DepositRequest $d) => PaymentRequestStatus::PAUSED === $d->getStatus());
+
         $actions = $actions
+            ->add(Crud::PAGE_INDEX, $resume)
+            ->add(Crud::PAGE_DETAIL, $resume)
             ->add(Crud::PAGE_INDEX, $markExpired)
             ->add(Crud::PAGE_DETAIL, $markExpired)
             ->add(Crud::PAGE_INDEX, $resendCallback)
@@ -89,6 +96,7 @@ final class DepositRequestCrudController extends AbstractCrudController
         $testActions = [
             'testReceived' => ['Тестовая панель: отметить получение', PaymentRequestStatus::RECEIVED],
             'testConfirm' => ['Тестовая панель: подтвердить оплату', PaymentRequestStatus::COMPLETED],
+            'testCancel' => ['Тестовая панель: отменить платёж', PaymentRequestStatus::PAUSED],
         ];
         foreach ($testActions as $method => [$label, $target]) {
             $action = Action::new($method, $label)
@@ -112,6 +120,22 @@ final class DepositRequestCrudController extends AbstractCrudController
     public function testConfirm(AdminContext $context): RedirectResponse
     {
         return $this->simulate($context, PaymentRequestStatus::COMPLETED);
+    }
+
+    #[AdminRoute(path: '/{entityId}/test-cancel', name: '_test_cancel')]
+    public function testCancel(AdminContext $context): RedirectResponse
+    {
+        return $this->simulate($context, PaymentRequestStatus::PAUSED);
+    }
+
+    #[AdminRoute(path: '/{entityId}/resume', name: '_resume')]
+    public function resume(AdminContext $context): RedirectResponse
+    {
+        /** @var DepositRequest $depositRequest */
+        $depositRequest = $context->getEntity()->getInstance();
+        $this->depositRequestService->resume($depositRequest);
+
+        return $this->redirect($context->getRequest()->headers->get('referer') ?? '/admin');
     }
 
     private function simulate(AdminContext $context, PaymentRequestStatus $target): RedirectResponse

@@ -59,6 +59,7 @@ final class DashboardController extends AbstractDashboardController
         yield MenuItem::subMenu('Заявки', 'fa fa-right-left')->setSubItems([
             MenuItem::linkTo(DepositRequestCrudController::class, 'Заявки на пополнение', 'fa fa-arrow-down'),
             MenuItem::linkTo(WithdrawalRequestCrudController::class, 'Заявки на вывод', 'fa fa-arrow-up'),
+            MenuItem::linkTo(PaymentCrudController::class, 'Платежи', 'fa fa-money-bill-transfer'),
             MenuItem::linkTo(CallbackDeliveryCrudController::class, 'Доставка колбэков', 'fa fa-bell'),
         ]);
 

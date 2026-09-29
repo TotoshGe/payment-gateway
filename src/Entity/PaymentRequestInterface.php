@@ -6,6 +6,7 @@ namespace App\Entity;
 
 use App\Enum\CallbackDeliveryStatus;
 use App\Enum\PaymentRequestStatus;
+use Doctrine\Common\Collections\Collection;
 use Symfony\Component\Uid\Uuid;
 
 /**
@@ -17,9 +18,16 @@ interface PaymentRequestInterface
 {
     public function getId(): Uuid;
 
-    public function getExternalReference(): string;
+    public function getUuid(): string;
 
     public function getStatus(): PaymentRequestStatus;
+
+    /**
+     * @return Collection<int, Payment>
+     */
+    public function getPayments(): Collection;
+
+    public function getLeadPayment(): ?Payment;
 
     public function getCallbackStatus(): CallbackDeliveryStatus;
 

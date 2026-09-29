@@ -7,12 +7,14 @@ namespace App\Controller\Admin;
 use App\Entity\WithdrawalRequest;
 use App\Enum\CallbackDeliveryStatus;
 use App\Enum\PaymentRequestStatus;
+use App\Enum\PaymentStatus;
 use App\Panel\TestPanel\TestPanelSimulationException;
 use App\Panel\TestPanel\TestPanelSimulator;
 use App\Panel\Dto\WithdrawalExecutionRequest;
 use App\Panel\Exception\PanelException;
 use App\Panel\PanelRegistry;
 use App\Service\CallbackDispatcher;
+use App\Service\WithdrawalRequestService;
 use Doctrine\ORM\EntityManagerInterface;
 use EasyCorp\Bundle\EasyAdminBundle\Config\Action;
 use EasyCorp\Bundle\EasyAdminBundle\Config\Actions;
@@ -32,6 +34,7 @@ final class WithdrawalRequestCrudController extends AbstractCrudController
     public function __construct(
         private readonly PanelRegistry $panelRegistry,
         private readonly CallbackDispatcher $callbackDispatcher,
+        private readonly WithdrawalRequestService $withdrawalRequestService,
         private readonly EntityManagerInterface $entityManager,
         private readonly LoggerInterface $logger,
         private readonly TestPanelSimulator $testPanelSimulator,
@@ -53,7 +56,7 @@ final class WithdrawalRequestCrudController extends AbstractCrudController
 
     public function configureFields(string $pageName): iterable
     {
-        yield TextField::new('externalReference', 'Внешний референс')->setTemplatePath('admin/field/copyable.html.twig');
+        yield TextField::new('uuid', 'UUID (Okean)')->setTemplatePath('admin/field/copyable.html.twig');
         yield AssociationField::new('panel', 'Панель');
         yield TextField::new('currency', 'Валюта');
         yield TextField::new('network', 'Сеть')->hideOnIndex();
@@ -62,6 +65,7 @@ final class WithdrawalRequestCrudController extends AbstractCrudController
         yield TextField::new('destinationAddress', 'Адрес получателя')->hideOnIndex()->setTemplatePath('admin/field/copyable.html.twig');
         yield TextField::new('txHash', 'Хеш транзакции')->hideOnIndex()->setTemplatePath('admin/field/copyable.html.twig');
         yield TextField::new('failureReason', 'Причина ошибки')->hideOnIndex();
+        yield AssociationField::new('payments', 'Платежи')->onlyOnDetail()->setTemplatePath('admin/field/payments.html.twig');
         yield ChoiceField::new('callbackStatus', 'Статус колбэка')->setChoices(self::callbackStatusChoices())->renderAsBadges(self::callbackStatusBadgeTypes())->hideOnIndex();
         yield DateTimeField::new('createdAt', 'Создано');
         yield DateTimeField::new('updatedAt', 'Обновлено')->hideOnIndex();
@@ -79,7 +83,13 @@ final class WithdrawalRequestCrudController extends AbstractCrudController
             ->linkToCrudAction('resendCallback')
             ->displayIf(static fn (WithdrawalRequest $w) => $w->getStatus()->isTerminal());
 
+        $failPaused = Action::new('failPaused', 'Закрыть как ошибку')
+            ->linkToCrudAction('failPaused')
+            ->displayIf(static fn (WithdrawalRequest $w) => PaymentRequestStatus::PAUSED === $w->getStatus());
+
         $actions = $actions
+            ->add(Crud::PAGE_INDEX, $failPaused)
+            ->add(Crud::PAGE_DETAIL, $failPaused)
             ->add(Crud::PAGE_INDEX, $retry)
             ->add(Crud::PAGE_DETAIL, $retry)
             ->add(Crud::PAGE_INDEX, $resendCallback)
@@ -89,6 +99,7 @@ final class WithdrawalRequestCrudController extends AbstractCrudController
             'testProcessing' => ['Тестовая панель: в обработке', PaymentRequestStatus::PROCESSING],
             'testConfirm' => ['Тестовая панель: подтвердить вывод', PaymentRequestStatus::COMPLETED],
             'testFail' => ['Тестовая панель: ошибка', PaymentRequestStatus::FAILED],
+            'testCancel' => ['Тестовая панель: отменить платёж', PaymentRequestStatus::PAUSED],
         ];
         foreach ($testActions as $method => [$label, $target]) {
             $action = Action::new($method, $label)
@@ -118,6 +129,22 @@ final class WithdrawalRequestCrudController extends AbstractCrudController
     public function testFail(AdminContext $context): RedirectResponse
     {
         return $this->simulate($context, PaymentRequestStatus::FAILED);
+    }
+
+    #[AdminRoute(path: '/{entityId}/test-cancel', name: '_test_cancel')]
+    public function testCancel(AdminContext $context): RedirectResponse
+    {
+        return $this->simulate($context, PaymentRequestStatus::PAUSED);
+    }
+
+    #[AdminRoute(path: '/{entityId}/fail-paused', name: '_fail_paused')]
+    public function failPaused(AdminContext $context): RedirectResponse
+    {
+        /** @var WithdrawalRequest $withdrawalRequest */
+        $withdrawalRequest = $context->getEntity()->getInstance();
+        $this->withdrawalRequestService->failPaused($withdrawalRequest);
+
+        return $this->redirect($context->getRequest()->headers->get('referer') ?? '/admin');
     }
 
     private function simulate(AdminContext $context, PaymentRequestStatus $target): RedirectResponse
@@ -163,6 +190,7 @@ final class WithdrawalRequestCrudController extends AbstractCrudController
             $withdrawalRequest->setPanelWithdrawalReference($result->panelWithdrawalReference);
             $withdrawalRequest->setFailureReason(null);
             $withdrawalRequest->setStatus($result->status);
+            $withdrawalRequest->getLeadPayment()?->setStatus(PaymentStatus::PENDING)->setReason(null)->setPanelReference($result->panelWithdrawalReference);
             $this->entityManager->flush();
         } catch (PanelException $exception) {
             $this->logger->error('Manual withdrawal retry failed', [

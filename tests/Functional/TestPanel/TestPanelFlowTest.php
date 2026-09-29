@@ -53,7 +53,7 @@ final class TestPanelFlowTest extends FunctionalTestCase
     private function createDeposit(KernelBrowser $client, string $reference, string $network = 'TRC20', int $expectedStatus = 201): array
     {
         return $this->post($client, '/api/v1/deposits', [
-            'external_reference' => $reference,
+            'uuid' => \Symfony\Component\Uid\Uuid::v5(\Symfony\Component\Uid\Uuid::fromString(\Symfony\Component\Uid\Uuid::NAMESPACE_OID), $reference)->toRfc4122(),
             'panel' => 'binance_test',
             'currency' => 'USDT',
             'network' => $network,
@@ -126,7 +126,7 @@ final class TestPanelFlowTest extends FunctionalTestCase
         $received = $find($this->createDeposit($client, 'bt-recv-'.uniqid()));
         $simulator->transitionDeposit($received, PaymentRequestStatus::RECEIVED);
         self::assertSame(PaymentRequestStatus::RECEIVED, $received->getStatus());
-        self::assertCount(0, $callbacks->findBy(['requestId' => $received->getId()]), 'non-terminal status sends no callback, same as the real poller');
+        self::assertCount(1, $callbacks->findBy(['requestId' => $received->getId()]), 'the seen payment is announced with deposit.updated, same as the real poller');
         $simulator->transitionDeposit($received, PaymentRequestStatus::COMPLETED);
         self::assertSame(PaymentRequestStatus::COMPLETED, $received->getStatus());
         self::assertSame('100.00', $received->getReceivedAmount(), 'defaults to the expected amount');
@@ -166,7 +166,7 @@ final class TestPanelFlowTest extends FunctionalTestCase
         $this->ensurePanel($container->get(EntityManagerInterface::class), 'binance_test');
 
         $body = static fn (string $ref): array => [
-            'external_reference' => $ref,
+            'uuid' => \Symfony\Component\Uid\Uuid::v5(\Symfony\Component\Uid\Uuid::fromString(\Symfony\Component\Uid\Uuid::NAMESPACE_OID), $ref)->toRfc4122(),
             'panel' => 'binance_test',
             'currency' => 'USDT',
             'network' => 'TRC20',
@@ -262,13 +262,12 @@ final class TestPanelFlowTest extends FunctionalTestCase
         self::assertSame([['currency' => 'USDT', 'network' => 'TON']], $panels[0]->getSupportedCurrencies());
     }
 
-    public function testConfirmCommandByUuidAndByExternalReference(): void
+    public function testConfirmCommandByGatewayIdAndByOkeanUuid(): void
     {
         $client = static::createClient();
         $container = self::getContainer();
         $this->ensurePanel($container->get(EntityManagerInterface::class), 'binance_test');
-        $reference = 'bt-cmd-'.uniqid();
-        $created = $this->createDeposit($client, $reference);
+        $created = $this->createDeposit($client, 'bt-cmd-'.uniqid());
 
         $tester = new CommandTester((new Application(self::$kernel))->find('app:test-panel:confirm'));
 
@@ -276,7 +275,7 @@ final class TestPanelFlowTest extends FunctionalTestCase
         self::assertSame(0, $tester->getStatusCode());
         self::assertStringContainsString('TEST PANEL', $tester->getDisplay());
 
-        $tester->execute(['id' => $reference, '--amount' => '42']);
+        $tester->execute(['id' => $created['uuid'], '--amount' => '42']);
         self::assertSame(0, $tester->getStatusCode());
 
         $deposit = $container->get(DepositRequestRepository::class)->find(\Symfony\Component\Uid\Uuid::fromString($created['id']));

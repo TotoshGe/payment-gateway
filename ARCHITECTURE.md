@@ -11,6 +11,12 @@ EasyAdmin, тесты). Документ ниже — исходная архи�
 
 ## Обновления по факту реализации
 
+0. **Платежи, `paused`, `uuid`** (последнее изменение): введена сущность
+   `Payment` и статус заявки `paused` (§1.6), `external_reference` /
+   `externalReference` переименован в `uuid` — голый UUID Okean без префикса
+   (§1.2, §3). Миграция `Version20260929080534` (с backfill платежей и
+   срезанием префиксов, есть `down()`). Изменены callbacks (§3.4).
+
 1. **R1 (диспетчеризация входящих депозитов) решено иначе**, чем
    предполагал черновик (не "уникализация суммы"). Продукт-овнер явно
    поручил: пул заранее подготовленных адресов на панели, с холдом на
@@ -90,7 +96,7 @@ EasyAdmin, тесты). Документ ниже — исходная архи�
 | Поле | Тип | Комментарий |
 |---|---|---|
 | `id` | uuid | публичный id, отдаётся в Okean |
-| `externalReference` | string, unique | id заявки на стороне Okean, используется для идемпотентности (см. §3) |
+| `uuid` | string(190), unique | UUID записи на стороне Okean (без префиксов `okean-payin-`/`okean-payout-`), ключ идемпотентности (см. §3). Не путать с `id` — собственным первичным ключом gateway |
 | `panel` | FK → Panel | |
 | `currency` | string | напр. `USDT` |
 | `network` | string, nullable | напр. `TRC20`; nullable для валют без сети (фиат, если появится) |
@@ -111,7 +117,7 @@ EasyAdmin, тесты). Документ ниже — исходная архи�
 | Поле | Тип | Комментарий |
 |---|---|---|
 | `id` | uuid | |
-| `externalReference` | string, unique | |
+| `uuid` | string(190), unique | UUID записи Okean, ключ идемпотентности (см. §3); `id` — собственный ключ gateway |
 | `panel` | FK → Panel | |
 | `currency` / `network` | string | |
 | `amount` | decimal(36,18) string | |
@@ -127,8 +133,8 @@ EasyAdmin, тесты). Документ ниже — исходная архи�
 | `createdAt` / `updatedAt` | datetime | |
 
 Обе заявки реализуют общий `PaymentRequestInterface` (не Doctrine-интерфейс, а
-доменный): `getId()`, `getExternalReference()`, `getStatusForCallback():
-string`, `toCallbackPayload(): array`. Это то самое "общая оркестрация сверху"
+доменный): `getId()`, `getUuid()`, `getStatus()`, `getPayments()`, `getLeadPayment()`,
+`toCallbackPayload(): array`, `callbackEventType(): string`. Это то самое "общая оркестрация сверху"
 — `CallbackDispatcher` и `CallbackDelivery` работают через этот интерфейс, не
 зная про Deposit/Withdrawal по отдельности.
 
@@ -152,8 +158,103 @@ NEW ──(вызов executeWithdrawal успешен, панель приня�
  └──(панель отклонила сразу — напр. insufficient balance)──> SUBMIT_FAILED [terminal, колбек]
 ```
 
-`RECEIVED`/`COMPLETED`/`FAILED`/`EXPIRED`/`SUBMIT_FAILED` — терминальные, из
-них заявка руками не возвращается (кроме явного admin override, см. §7).
+Актуальный набор статусов заявки (`PaymentRequestStatus`): `new`,
+`awaiting_payment`, `submitted`, `processing`, `received`, **`paused`**,
+`completed`, `failed`, `expired`, `submit_failed`. Терминальные:
+`completed`, `failed`, `expired`, `submit_failed` — из них заявка руками не
+возвращается (кроме явного admin override, см. §7). `received` и `paused` —
+**не** терминальные (в схемах выше `RECEIVED` был показан как терминальный —
+это устарело). Промежуточные статусы теперь выводятся из платежей, см. §1.6.
+
+### 1.6 Payment (платёж) и синхронизация статуса заявки
+
+Заявка — это «намерение», конкретное движение денег — **платёж** (`Payment`,
+таблица `payment`). Статус заявки *выводится* из статуса её платежей, а не
+пишется независимо.
+
+| Поле | Тип | Комментарий |
+|---|---|---|
+| `id` | uuid | |
+| `type` | enum `deposit`/`withdrawal` | |
+| `depositRequest` / `withdrawalRequest` | FK, nullable | ровно одно заполнено (соответствует `type`) |
+| `panel` | FK → Panel | |
+| `amount` | string(64) | сумма платежа, bcmath-строка, не float |
+| `currency` | string(32) | |
+| `network` | string(32), **nullable** | сеть необязательна (например, валюта без сети) |
+| `status` | enum `pending/confirming/completed/failed/cancelled` | |
+| `confirmations` | int, nullable | |
+| `panelReference` | string, nullable | депозит: tx id панели; вывод: id вывода на панели |
+| `txHash` | string, nullable | |
+| `reason` | text, nullable | причина `failed`/`cancelled` |
+| `createdAt` / `updatedAt` | datetime | |
+
+Уникальность `(panel, type, panelReference)`: один и тот же on-chain перевод
+привязывается только к одной заявке (пул адресов переиспользуется, старые
+переводы на адрес не должны «прилипнуть» к новой заявке; `BinancePanel`
+дополнительно отбрасывает переводы с `insertTime` раньше создания заявки).
+
+**Депозит.** Заявка создаётся **без платежа** (`awaiting_payment`, адрес из
+пула). Поллер (`app:payment-gateway:poll-deposits`) опрашивает адреса заявок
+в статусах `awaiting_payment`, `received` и `paused`. Когда панель видит
+перевод на адрес заявки, `DepositRequestService::applyPaymentUpdate()` находит
+платёж по `panelReference` (tx id), а если его ещё нет — создаёт и привязывает
+к заявке (сумма/валюта/сеть — фактическая сумма, валюта и сеть заявки), дальше
+обновляет статус платежа и выводит статус заявки.
+
+**Вывод.** Платёж создаётся вместе с заявкой (`pending`, сумма/валюта/сеть
+из заявки). `panelReference` появляется, когда панель приняла вывод.
+
+Маппинг статуса платежа -> статус заявки:
+
+| Платёж | Заявка-депозит | Заявка-вывод |
+|---|---|---|
+| (платежа нет) | `awaiting_payment` | `new` (до ответа панели) |
+| `pending` | `received` (перевод замечен) | `submitted` |
+| `confirming` | `received` (ждёт подтверждений сети) | `processing` |
+| `completed` | `completed` (терминальный) | `completed` (терминальный) |
+| `failed` | `paused` | `failed` (терминальный) |
+| `cancelled` | **`paused`** | **`paused`** |
+| отказ панели при отправке | — | `submit_failed` (платёж `failed`) |
+
+Binance -> платёж. Депозит: `0`/`8` -> `pending`, `6` -> `confirming`,
+`1` -> `completed`, `2` (rejected)/`7` (wrong deposit) -> `cancelled`. Вывод:
+`6` -> `completed`, `1` (cancelled) -> `cancelled`, `3`/`5` -> `failed`,
+остальные -> `confirming`. `DepositStatusUpdate`/`WithdrawalStatusUpdate`
+(результат `PanelInterface::checkDeposits()/checkWithdrawals()`) несут именно
+`PaymentStatus`; статус заявки из него выводит только оркестрирующий сервис
+(`PaymentRequestSynchronizer`).
+
+Правила при нескольких платежах у депозита: любой `completed` закрывает
+заявку (`receivedAmount` = сумма этого платежа); иначе любой живой
+(`pending`/`confirming`) держит `received`; если все платежи мертвы
+(`failed`/`cancelled`) — `paused`. Финальный платёж (`completed`/`failed`/
+`cancelled`) не переоткрывается; терминальную заявку поздние наблюдения не
+меняют. Повторное наблюдение того же платежа без изменений статус заявки не
+пересчитывает (иначе `resume` вечно возвращался бы в `paused`).
+
+**Таймаут `paused` для депозитов.** Заявка на пополнение в `paused` дольше
+`PAUSED_DEPOSIT_TIMEOUT_HOURS` (env, по умолчанию 72) переводится в
+`expired`, адрес возвращается в пул, Okean получает **тот же** колбэк
+`deposit.expired`, что и при обычном истечении (в `payment` — последний,
+отменённый платёж). Выполняет тот же воркер `poll-deposits` (проверка после
+каждого цикла), момент входа в `paused` хранится в `deposit_request.paused_at`.
+Выводы в `paused` автоматически **не** трогаются. Риск: деньги, пришедшие на
+адрес *после* таймаута, больше не отслеживаются. Если адрес уже выдан новой
+заявке, перевод с `insertTime` раньше её создания не привязывается к ней
+(фильтр в `BinancePanel`) и пишется в лог уровнем `warning`
+(«unattributed funds») для ручной сверки; перевод, пришедший уже после
+создания новой заявки, привяжется к ней — отличить его от платежа новой заявки
+по адресу невозможно. Отдельного экрана «ничьих» переводов в админке нет
+(только лог). Поэтому таймаут стоит держать заметно длиннее ожидаемого срока
+разбора паузы.
+
+`paused` — не терминальный: адрес пула остаётся занятым (деньги могут ещё
+прийти), Okean получает колбэк `deposit.paused`/`withdrawal.paused`. Выход из
+`paused`: депозит — приходит новый платёж (пересчёт статуса) либо админ
+«Возобновить ожидание» (`awaiting_payment`); вывод — админ «Закрыть как
+ошибку» (`failed`, колбэк `withdrawal.failed`); автоповтор вывода не делается
+(риск двойной отправки).
+
 
 ### 1.5 CallbackDelivery
 
@@ -248,13 +349,13 @@ interface PanelInterface
   (валюта, сеть, номер слота), не соответствуют ни одному реальному кошельку
   (у форматов с контрольной суммой она намеренно неверна, у остальных есть
   маркер `TEST`). Слот 0..49; каждая параллельная заявка получает свой слот,
-  повторный запрос с тем же `external_reference` возвращает ту же заявку и
+  повторный запрос с тем же `uuid` возвращает ту же заявку и
   тот же адрес (идемпотентность в сервисе, как у Binance).
 - **Поступление и исполнение вывода не определяются поллингом**:
   `checkDeposits()`/`checkWithdrawals()` пусты. Оператор двигает статусы
   вручную (`TestPanelSimulator`): кнопки «Test Panel: ...» в админке
   gateway (видны только у заявок этой панели) или
-  `bin/console app:test-panel:confirm <uuid|external_reference> --status=completed [--amount=..]`
+  `bin/console app:test-panel:confirm <id|uuid> --status=completed [--amount=..]` (`id` — ключ gateway, `uuid` — Okean; сначала ищется по `id`)
   (старое имя `app:binance-test:confirm` — алиас). Симулятор вызывает те же
   `applyStatusUpdate()`/`expire()`, что и реальные поллеры, поэтому колбек
   уходит тем же путём. Доступные переходы — те, которые могут дать поллеры
@@ -287,7 +388,8 @@ interface PanelInterface
 
 ```json
 {
-  "external_reference": "okean-guest-exchange-4821",
+  "uuid": "0b0f1b3e-6f4d-4d7e-9a53-1f0a5c2e7d11",
+  "panel": "binance",
   "currency": "USDT",
   "network": "TRC20",
   "expected_amount": "150.00"
@@ -297,14 +399,15 @@ interface PanelInterface
 `expected_amount` обязателен (не опционален) — он не просто для отображения,
 а участвует в сопоставлении входящего платежа с заявкой, см. риск §R1.
 
-Ответ `201 Created` (или `200 OK`, если заявка с таким `external_reference`
+Ответ `201 Created` (или `200 OK`, если заявка с таким `uuid`
 уже существует — см. идемпотентность ниже):
 
 ```json
 {
   "id": "b3f1...",
-  "external_reference": "okean-guest-exchange-4821",
+  "uuid": "0b0f1b3e-6f4d-4d7e-9a53-1f0a5c2e7d11",
   "status": "awaiting_payment",
+  "payments": [],
   "currency": "USDT",
   "network": "TRC20",
   "expected_amount": "150.00",
@@ -319,8 +422,16 @@ interface PanelInterface
 ошибку; заявка на стороне PG всё равно создаётся в статусе `failed` для
 трассируемости.
 
-**Идемпотентность:** `external_reference` уникален. Повторный `POST` с тем же
-`external_reference` не создаёт вторую заявку/второй адрес — возвращает
+`uuid` — обязательный валидный UUID записи Okean (регистр не важен, хранится в
+нижнем). `network` необязателен (может быть `null`). Значения не-UUID, в том
+числе старые `okean-payin-<uuid>`, отклоняются `422`. `id` в ответе — это
+собственный ключ gateway (он же `request_id` в колбэках), **не** `uuid`.
+`payments` — платежи заявки (у депозита пуст, пока на адрес ничего не
+пришло); элемент: `{id, status, amount, currency, network, confirmations,
+tx_hash}`.
+
+**Идемпотентность:** `uuid` уникален. Повторный `POST` с тем же
+`uuid` не создаёт вторую заявку/второй адрес — возвращает
 текущее состояние существующей (`200`, не `201`). Это защищает от дублей при
 ретраях на стороне Okean (таймаут, потеря ответа).
 
@@ -330,7 +441,8 @@ interface PanelInterface
 
 ```json
 {
-  "external_reference": "okean-payout-991",
+  "uuid": "7c9d3c5a-2b1e-4f6a-8d90-3e4b5a6c7d22",
+  "panel": "binance",
   "currency": "USDT",
   "network": "TRC20",
   "amount": "148.50",
@@ -344,15 +456,16 @@ interface PanelInterface
 ```json
 {
   "id": "9c2e...",
-  "external_reference": "okean-payout-991",
+  "uuid": "7c9d3c5a-2b1e-4f6a-8d90-3e4b5a6c7d22",
   "status": "submitted",
+  "payments": [{"id": "e1f0...", "status": "pending", "amount": "148.50", "currency": "USDT", "network": "TRC20", "confirmations": null, "tx_hash": null}],
   "currency": "USDT",
   "network": "TRC20",
   "amount": "148.50"
 }
 ```
 
-Та же идемпотентность по `external_reference`, тот же смысл — повтор не
+Та же идемпотентность по `uuid`, тот же смысл — повтор не
 приводит к повторной отправке средств (см. `clientWithdrawalId` в §1.3).
 
 ### 3.3 Статус-эндпоинты (fallback, не основной канал)
@@ -375,17 +488,31 @@ interface PanelInterface
   "event_id": "5e2a5e2a-...-uuid",
   "type": "deposit.received",
   "request_id": "b3f1...",
-  "external_reference": "okean-guest-exchange-4821",
-  "status": "received",
+  "uuid": "0b0f1b3e-6f4d-4d7e-9a53-1f0a5c2e7d11",
+  "status": "completed",
   "currency": "USDT",
   "network": "TRC20",
   "amount": "150.00",
+  "payment": {"id": "e1f0...", "status": "completed", "amount": "150.00", "currency": "USDT", "network": "TRC20", "confirmations": 12, "tx_hash": "0xabc..."},
   "occurred_at": "2026-09-18T15:42:11Z"
 }
 ```
 
-`type` ∈ `deposit.received`, `deposit.expired`, `deposit.failed`,
-`withdrawal.completed`, `withdrawal.failed`.
+`type` ∈ `deposit.updated`, `deposit.received`, `deposit.expired`, `deposit.failed`,
+`deposit.paused`, `withdrawal.completed`, `withdrawal.failed`,
+`withdrawal.paused`. Колбэки уходят при переходе заявки в терминальный статус
+и при переходе в `paused`. Кроме того, **`deposit.updated`** (нетерминальный,
+только депозиты) уходит, когда на адрес заявки появился платёж и при каждом
+изменении его статуса или числа подтверждений (`payment.status`,
+`payment.confirmations`; `status` заявки при этом `received`); при
+неизменном состоянии дублей нет. Для `withdrawal.*` промежуточных колбэков нет
+(состояние видно через `GET`). Каждое событие имеет свой `event_id`. `request_id` — id заявки в gateway, `uuid` — UUID
+Okean (ключ для сопоставления на стороне Okean); поле `external_reference`
+удалено. `payment` — ведущий платёж заявки (может быть `null`; `network`
+внутри тоже допустим `null`). У `withdrawal.*` есть также `tx_hash`.
+`paused` — не финал: позже придёт ещё колбэк (`*.received`/`*.completed`/
+`withdrawal.failed`) либо ручное решение оператора. Для `deposit.received`
+`status` в теле — `completed`.
 
 Заголовки:
 

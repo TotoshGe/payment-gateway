@@ -8,6 +8,7 @@ use App\Entity\DepositRequest;
 use App\Entity\Panel;
 use App\Entity\WithdrawalRequest;
 use App\Enum\PaymentRequestStatus;
+use App\Enum\PaymentStatus;
 use App\Panel\Dto\DepositAddressResult;
 use App\Panel\Dto\DepositStatusUpdate;
 use App\Panel\Dto\WithdrawalExecutionRequest;
@@ -72,9 +73,14 @@ final class FakePanel implements PanelInterface
         $this->queuedDepositUpdates[] = $update;
     }
 
-    public function queueDepositCompleted(DepositRequest $depositRequest, string $amount): void
+    public function queueDepositCompleted(DepositRequest $depositRequest, string $amount, string $txId = 'fake-tx'): void
     {
-        $this->queueDepositUpdate(new DepositStatusUpdate($depositRequest->getId(), PaymentRequestStatus::COMPLETED, $amount, 12, 'fake-tx'));
+        $this->queueDepositPayment($depositRequest, PaymentStatus::COMPLETED, $amount, $txId);
+    }
+
+    public function queueDepositPayment(DepositRequest $depositRequest, PaymentStatus $status, string $amount, string $txId = 'fake-tx'): void
+    {
+        $this->queueDepositUpdate(new DepositStatusUpdate($depositRequest->getId(), $status, $amount, PaymentStatus::COMPLETED === $status ? 12 : 1, $txId));
     }
 
     public function setNextWithdrawalException(\Throwable $exception): void

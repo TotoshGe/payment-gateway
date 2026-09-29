@@ -157,9 +157,39 @@ final class BinancePanelTest extends TestCase
 
         self::assertCount(1, $updates);
         self::assertSame($matching->getId()->toRfc4122(), $updates[0]->depositRequestId->toRfc4122());
-        self::assertSame(PaymentRequestStatus::COMPLETED, $updates[0]->status);
+        self::assertSame(\App\Enum\PaymentStatus::COMPLETED, $updates[0]->status);
         self::assertSame('100.00000000', $updates[0]->observedAmount);
         self::assertSame('tx-abc', $updates[0]->panelDepositReference);
+    }
+
+    public function testCheckDepositsIgnoresTransfersOlderThanTheRequest(): void
+    {
+        $panel = $this->makePanel($this->makeEncryptor());
+        $request = new DepositRequest('ext-2', $panel, 'USDT', 'TRC20', '100.00', new \DateTimeImmutable('+1 hour'));
+        $request->assignWalletAddress(new PanelWalletAddress($panel, 'USDT', 'TRC20', 0, 'Tmatch'));
+
+        $before = (time() - 3600) * 1000;
+        $after = (time() + 60) * 1000;
+        $httpClient = new MockHttpClient(fn () => new MockResponse(json_encode([
+            ['address' => 'Tmatch', 'addressTag' => '', 'amount' => '1', 'status' => 1, 'txId' => 'tx-old', 'insertTime' => $before],
+            ['address' => 'Tmatch', 'addressTag' => '', 'amount' => '2', 'status' => 0, 'txId' => 'tx-new', 'insertTime' => $after],
+        ])));
+
+        $logger = new class extends NullLogger {
+            /** @var list<string> */
+            public array $warnings = [];
+
+            public function warning(\Stringable|string $message, array $context = []): void
+            {
+                $this->warnings[] = (string) ($context['txId'] ?? '');
+            }
+        };
+        $updates = iterator_to_array((new BinancePanel($httpClient, $logger, $this->makeEncryptor()))->checkDeposits($panel, [$request]));
+
+        self::assertSame(['tx-old'], $logger->warnings, 'the unattributed transfer is logged for reconciliation');
+        self::assertCount(1, $updates, 'a transfer from an earlier holder of the pooled address is not linked');
+        self::assertSame('tx-new', $updates[0]->panelDepositReference);
+        self::assertSame(\App\Enum\PaymentStatus::PENDING, $updates[0]->status);
     }
 
     public function testExecuteWithdrawalSendsClientWithdrawalIdAsWithdrawOrderId(): void

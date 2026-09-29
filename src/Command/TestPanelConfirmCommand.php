@@ -39,7 +39,7 @@ class TestPanelConfirmCommand extends Command
     protected function configure(): void
     {
         $this
-            ->addArgument('id', InputArgument::REQUIRED, 'Request UUID (or its external_reference) of a deposit or withdrawal on the Test Panel (binance_test)')
+            ->addArgument('id', InputArgument::REQUIRED, 'Gateway request id, or the Okean uuid, of a deposit or withdrawal on the Test Panel (binance_test)')
             ->addOption('status', 's', InputOption::VALUE_REQUIRED, 'Target status: '.implode('|', self::STATUS_OPTIONS), 'completed')
             ->addOption('amount', 'a', InputOption::VALUE_REQUIRED, 'Deposits only: confirmed amount (default: the expected amount)');
     }
@@ -61,12 +61,12 @@ class TestPanelConfirmCommand extends Command
         $withdrawal = Uuid::isValid($reference) ? $this->withdrawalRequestRepository->find(Uuid::fromString($reference)) : null;
 
         if (null === $deposit && null === $withdrawal) {
-            $deposit = $this->depositRequestRepository->findOneByExternalReference($reference);
-            $withdrawal = $this->withdrawalRequestRepository->findOneByExternalReference($reference);
+            $deposit = $this->depositRequestRepository->findOneByUuid($reference);
+            $withdrawal = $this->withdrawalRequestRepository->findOneByUuid($reference);
         }
 
         if (null !== $deposit && null !== $withdrawal) {
-            $io->error('External reference matches both a deposit and a withdrawal; pass the request UUID instead.');
+            $io->error('The Okean uuid matches both a deposit and a withdrawal; pass the gateway request id instead.');
 
             return Command::FAILURE;
         }

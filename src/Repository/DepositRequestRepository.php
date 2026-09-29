@@ -20,16 +20,23 @@ class DepositRequestRepository extends ServiceEntityRepository
         parent::__construct($registry, DepositRequest::class);
     }
 
-    public function findOneByExternalReference(string $externalReference): ?DepositRequest
+    public function findOneByUuid(string $uuid): ?DepositRequest
     {
-        return $this->findOneBy(['externalReference' => $externalReference]);
+        return $this->findOneBy(['uuid' => $uuid]);
     }
 
     /**
+     * Requests whose address must keep being watched: nothing seen yet, a
+     * payment still confirming, or a paused one (a fresh payment can still
+     * arrive at the held address).
+     *
      * @return DepositRequest[]
      */
-    public function findAwaitingPaymentForPanel(Panel $panel): array
+    public function findPollableForPanel(Panel $panel): array
     {
-        return $this->findBy(['panel' => $panel, 'status' => PaymentRequestStatus::AWAITING_PAYMENT]);
+        return $this->findBy([
+            'panel' => $panel,
+            'status' => [PaymentRequestStatus::AWAITING_PAYMENT, PaymentRequestStatus::RECEIVED, PaymentRequestStatus::PAUSED],
+        ]);
     }
 }

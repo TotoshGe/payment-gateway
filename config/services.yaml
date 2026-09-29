@@ -13,6 +13,8 @@ parameters:
     app.panel_credentials_key: '%env(PANEL_CREDENTIALS_KEY)%'
     app.deposit_address_ttl_minutes: 90
     app.deposit_poll_interval_seconds: 15
+    app.paused_deposit_timeout_hours_default: 72
+    app.paused_deposit_timeout_hours: '%env(int:default:app.paused_deposit_timeout_hours_default:PAUSED_DEPOSIT_TIMEOUT_HOURS)%'
     app.withdrawal_poll_interval_seconds: 60
 
 services:
@@ -57,6 +59,7 @@ services:
     App\Service\DepositRequestService:
         arguments:
             $addressTtlMinutes: '%app.deposit_address_ttl_minutes%'
+            $pausedTimeoutHours: '%app.paused_deposit_timeout_hours%'
 
     # add more service definitions when explicit configuration is needed
     # please note that last definitions always *replace* previous ones

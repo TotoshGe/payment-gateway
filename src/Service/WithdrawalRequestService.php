@@ -5,7 +5,9 @@ declare(strict_types=1);
 namespace App\Service;
 
 use App\Entity\WithdrawalRequest;
+use App\Entity\Payment;
 use App\Enum\PaymentRequestStatus;
+use App\Enum\PaymentStatus;
 use App\Panel\Dto\WithdrawalExecutionRequest;
 use App\Panel\Exception\PanelException;
 use App\Panel\PanelRegistry;
@@ -22,6 +24,7 @@ final class WithdrawalRequestService
         private readonly WithdrawalRequestRepository $withdrawalRequestRepository,
         private readonly PanelRepository $panelRepository,
         private readonly PanelRegistry $panelRegistry,
+        private readonly PaymentRequestSynchronizer $synchronizer,
         private readonly CallbackDispatcher $callbackDispatcher,
         private readonly EntityManagerInterface $entityManager,
         private readonly LoggerInterface $logger,
@@ -32,7 +35,7 @@ final class WithdrawalRequestService
      * @return array{request: WithdrawalRequest, created: bool}
      */
     public function createOrGetExisting(
-        string $externalReference,
+        string $uuid,
         string $panelCode,
         string $currency,
         ?string $network,
@@ -40,7 +43,7 @@ final class WithdrawalRequestService
         string $destinationAddress,
         ?string $destinationTag,
     ): array {
-        $existing = $this->withdrawalRequestRepository->findOneByExternalReference($externalReference);
+        $existing = $this->withdrawalRequestRepository->findOneByUuid($uuid);
         if (null !== $existing) {
             return ['request' => $existing, 'created' => false];
         }
@@ -51,9 +54,12 @@ final class WithdrawalRequestService
         }
 
         $clientWithdrawalId = Uuid::v4()->toRfc4122();
-        $withdrawalRequest = new WithdrawalRequest($externalReference, $panel, $currency, $network, $amount, $destinationAddress, $destinationTag, $clientWithdrawalId);
+        $withdrawalRequest = new WithdrawalRequest($uuid, $panel, $currency, $network, $amount, $destinationAddress, $destinationTag, $clientWithdrawalId);
+
+        $payment = Payment::forWithdrawal($withdrawalRequest);
 
         $this->entityManager->persist($withdrawalRequest);
+        $this->entityManager->persist($payment);
         $this->entityManager->flush();
 
         $driver = $this->panelRegistry->getDriverFor($panel);
@@ -70,14 +76,16 @@ final class WithdrawalRequestService
 
             $withdrawalRequest->setPanelWithdrawalReference($result->panelWithdrawalReference);
             $withdrawalRequest->setStatus($result->status);
+            $payment->setPanelReference($result->panelWithdrawalReference);
             $this->entityManager->flush();
         } catch (PanelException $exception) {
             $this->logger->error('Panel rejected withdrawal submission', [
                 'panel' => $panelCode,
-                'externalReference' => $externalReference,
+                'uuid' => $uuid,
                 'error' => $exception->getMessage(),
             ]);
 
+            $payment->setStatus(PaymentStatus::FAILED)->setReason($exception->getMessage());
             $withdrawalRequest->setStatus(PaymentRequestStatus::SUBMIT_FAILED);
             $withdrawalRequest->setFailureReason($exception->getMessage());
             $this->entityManager->flush();
@@ -87,19 +95,46 @@ final class WithdrawalRequestService
         return ['request' => $withdrawalRequest, 'created' => true];
     }
 
-    public function applyStatusUpdate(WithdrawalRequest $withdrawalRequest, PaymentRequestStatus $status, ?string $txHash, ?string $failureReason): void
+    public function applyPaymentUpdate(WithdrawalRequest $withdrawalRequest, PaymentStatus $status, ?string $txHash, ?string $reason): void
     {
-        if ($withdrawalRequest->getStatus() === $status) {
+        if ($withdrawalRequest->getStatus()->isTerminal()) {
             return;
         }
 
-        $withdrawalRequest->setTxHash($txHash);
-        $withdrawalRequest->setFailureReason($failureReason);
-        $withdrawalRequest->setStatus($status);
+        $payment = $withdrawalRequest->getLeadPayment();
+        if (null === $payment) {
+            return;
+        }
+
+        if ($payment->getStatus()->isFinal() && $payment->getStatus() !== $status) {
+            return;
+        }
+
+        if ($payment->getStatus() !== $status || $payment->getTxHash() !== $txHash) {
+            $payment->setStatus($status)->setTxHash($txHash)->setReason($reason);
+        }
+
+        $changed = $this->synchronizer->syncWithdrawal($withdrawalRequest);
         $this->entityManager->flush();
 
-        if ($status->isTerminal()) {
+        if ($changed && ($withdrawalRequest->getStatus()->isTerminal() || PaymentRequestStatus::PAUSED === $withdrawalRequest->getStatus())) {
             $this->callbackDispatcher->dispatchFor($withdrawalRequest);
         }
+    }
+
+    /**
+     * Admin action for a paused withdrawal (its payment was cancelled): the
+     * funds were not sent, so it is closed as FAILED and Okean is told
+     * (withdrawal.failed). Never re-sent automatically.
+     */
+    public function failPaused(WithdrawalRequest $withdrawalRequest): void
+    {
+        if (PaymentRequestStatus::PAUSED !== $withdrawalRequest->getStatus()) {
+            return;
+        }
+
+        $withdrawalRequest->setStatus(PaymentRequestStatus::FAILED);
+        $this->entityManager->flush();
+        $this->callbackDispatcher->dispatchFor($withdrawalRequest);
     }
 }

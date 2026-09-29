@@ -22,7 +22,7 @@ abstract class FunctionalTestCase extends WebTestCase
         self::bootKernel();
         $connection = self::getContainer()->get(EntityManagerInterface::class)->getConnection();
 
-        foreach (['callback_delivery', 'deposit_request', 'withdrawal_request', 'panel_wallet_address'] as $table) {
+        foreach (['callback_delivery', 'payment', 'deposit_request', 'withdrawal_request', 'panel_wallet_address'] as $table) {
             $connection->executeStatement('DELETE FROM '.$table);
         }
 

@@ -31,6 +31,14 @@ enum PaymentRequestStatus: string
      */
     case RECEIVED = 'received';
 
+    /**
+     * Non-terminal, both flows: the request's payment was cancelled/failed
+     * (deposit) or cancelled (withdrawal) and needs attention. The pooled
+     * deposit address stays held; a new payment arriving or an admin action
+     * moves it on.
+     */
+    case PAUSED = 'paused';
+
     /** Terminal success, shared by both flows. */
     case COMPLETED = 'completed';
 
@@ -69,6 +77,7 @@ enum PaymentRequestStatus: string
             self::SUBMITTED => 'Отправлена',
             self::PROCESSING => 'В обработке',
             self::RECEIVED => 'Получена',
+            self::PAUSED => 'Приостановлена',
             self::COMPLETED => 'Завершена',
             self::FAILED => 'Ошибка',
             self::EXPIRED => 'Истекла',
@@ -85,7 +94,7 @@ enum PaymentRequestStatus: string
         return match ($this) {
             self::COMPLETED => 'success',
             self::FAILED, self::EXPIRED, self::SUBMIT_FAILED => 'danger',
-            self::PROCESSING, self::RECEIVED => 'warning',
+            self::PROCESSING, self::RECEIVED, self::PAUSED => 'warning',
             self::AWAITING_PAYMENT, self::SUBMITTED => 'info',
             self::NEW => 'secondary',
         };

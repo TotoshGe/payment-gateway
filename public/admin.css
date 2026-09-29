@@ -1574,3 +1574,6 @@ a.pg-card:hover {
         grid-template-columns: minmax(0, 1fr);
     }
 }
+
+.pg-link-list { list-style: none; margin: 0; padding: 0; }
+.pg-link-list li + li { margin-top: 4px; }

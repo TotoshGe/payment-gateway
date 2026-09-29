@@ -48,7 +48,7 @@ final class RequestRepositoryPanelFilterTest extends KernelTestCase
 
         /** @var DepositRequestRepository $repository */
         $repository = self::getContainer()->get(DepositRequestRepository::class);
-        $results = $repository->findAwaitingPaymentForPanel($panelA);
+        $results = $repository->findPollableForPanel($panelA);
 
         self::assertCount(1, $results);
         self::assertSame($requestA->getId()->toRfc4122(), $results[0]->getId()->toRfc4122());
