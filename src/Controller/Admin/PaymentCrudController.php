@@ -43,6 +43,7 @@ final class PaymentCrudController extends AbstractCrudController
     public function configureFilters(Filters $filters): Filters
     {
         return $filters
+            ->add(ChoiceFilter::new('type', 'Тип')->setChoices(self::typeChoices()))
             ->add(ChoiceFilter::new('status', 'Статус')->setChoices(self::statusChoices()))
             ->add(DateTimeFilter::new('createdAt', 'Создан'));
     }
@@ -57,13 +58,11 @@ final class PaymentCrudController extends AbstractCrudController
     public function configureFields(string $pageName): iterable
     {
         yield TextField::new('id', 'ID платежа (gateway)')->onlyOnDetail()->setTemplatePath('admin/field/copyable.html.twig');
-        yield ChoiceField::new('type', 'Тип')->setChoices([
-            PaymentRequestType::DEPOSIT->label() => PaymentRequestType::DEPOSIT,
-            PaymentRequestType::WITHDRAWAL->label() => PaymentRequestType::WITHDRAWAL,
-        ]);
-        yield TextField::new('request', 'Заявка (UUID Okean)')->setVirtual(true)->setTemplatePath('admin/field/payment_request.html.twig');
+        yield ChoiceField::new('type', 'Тип')->setChoices(self::typeChoices())->formatValue(static fn ($value) => $value instanceof PaymentRequestType ? $value->paymentLabel() : $value);
+        yield TextField::new('requestId', 'ID заявки')->setVirtual(true)->setTemplatePath('admin/field/payment_request.html.twig');
+        yield TextField::new('requestUuid', 'UUID (Okean)')->setVirtual(true)->setTemplatePath('admin/field/payment_request_uuid.html.twig');
         yield AssociationField::new('panel', 'Панель');
-        yield TextField::new('amount', 'Сумма');
+        yield TextField::new('amount', 'Сумма')->setTemplatePath('admin/field/amount.html.twig');
         yield TextField::new('currency', 'Валюта');
         yield TextField::new('network', 'Сеть');
         yield ChoiceField::new('status', 'Статус')->setChoices(self::statusChoices())->renderAsBadges(self::statusBadgeTypes());
@@ -74,6 +73,17 @@ final class PaymentCrudController extends AbstractCrudController
         yield TextField::new('reason', 'Причина ошибки/отмены')->hideOnIndex();
         yield DateTimeField::new('createdAt', 'Создан');
         yield DateTimeField::new('updatedAt', 'Обновлён')->hideOnIndex();
+    }
+
+    /**
+     * @return array<string, PaymentRequestType>
+     */
+    private static function typeChoices(): array
+    {
+        return [
+            PaymentRequestType::DEPOSIT->paymentLabel() => PaymentRequestType::DEPOSIT,
+            PaymentRequestType::WITHDRAWAL->paymentLabel() => PaymentRequestType::WITHDRAWAL,
+        ];
     }
 
     /**

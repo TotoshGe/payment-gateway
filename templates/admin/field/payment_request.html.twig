@@ -1,9 +1,12 @@
-{% set payment = entity.instance %}
-{% set related = payment.depositRequest ?? payment.withdrawalRequest %}
+{# Payment list: gateway id of the request (link to its card, full id copyable). #}
+{% set related = entity.instance.depositRequest ?? entity.instance.withdrawalRequest %}
 {% if related is null %}
     <span class="pg-muted">—</span>
 {% else %}
-    {% set controller = payment.depositRequest is not null ? 'App\\Controller\\Admin\\DepositRequestCrudController' : 'App\\Controller\\Admin\\WithdrawalRequestCrudController' %}
-    <a href="{{ ea_url().setController(controller).setAction('detail').setEntityId(related.id) }}" title="{{ related.id }}">{{ related.uuid }}</a>
-    <span class="pg-muted">{{ related.id|slice(0, 8) }}…</span>
+    {% set rid = related is null ? '' : related.id ~ '' %}
+    {% set controller = entity.instance.depositRequest is not null ? 'App\\Controller\\Admin\\DepositRequestCrudController' : 'App\\Controller\\Admin\\WithdrawalRequestCrudController' %}
+    <span class="pg-copy">
+        <a class="pg-copy__text" href="{{ ea_url().setController(controller).setAction('detail').setEntityId(related.id) }}" title="{{ rid }}">{{ rid|slice(0, 8) }}…</a>
+        <button type="button" class="pg-copy__btn" data-pg-copy="{{ rid }}" title="Скопировать" aria-label="Скопировать"><i class="fa fa-regular fa-copy" aria-hidden="true"></i></button>
+    </span>
 {% endif %}

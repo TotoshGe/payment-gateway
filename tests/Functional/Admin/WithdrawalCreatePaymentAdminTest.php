@@ -167,18 +167,61 @@ final class WithdrawalCreatePaymentAdminTest extends FunctionalTestCase
 
         $crawler = $client->request('GET', $this->url(WithdrawalRequestCrudController::class, 'index'));
         self::assertResponseIsSuccessful();
-        $link = $crawler->filter('a[href*="/admin/payment/"]');
-        self::assertGreaterThanOrEqual(1, $link->count(), 'withdrawal list links to its payments');
-        self::assertStringContainsString((string) $payment->getId(), $link->first()->attr('href'));
+        self::assertStringNotContainsString('Платежи', $crawler->filter('thead')->text(), 'no payments column in the list');
+        self::assertCount(0, $crawler->filter('tbody a[href*="/admin/payment/"]'));
+        $idLink = $crawler->filter('tbody a[href*="/admin/withdrawal-request/"]');
+        self::assertStringContainsString((string) $withdrawal->getId(), $idLink->first()->attr('href'));
+        self::assertStringContainsString(substr((string) $withdrawal->getId(), 0, 8), $idLink->first()->text());
+        self::assertSame((string) $withdrawal->getId(), $crawler->filter('tbody [data-pg-copy]')->first()->attr('data-pg-copy'));
+        $headers = $crawler->filter('thead th')->each(static fn ($th) => trim($th->text()));
+        self::assertLessThan(array_search('UUID (Okean)', $headers, true), array_search('ID заявки', $headers, true));
 
         $crawler = $client->request('GET', $this->url(DepositRequestCrudController::class, 'index'));
-        self::assertGreaterThanOrEqual(1, $crawler->filter('a[href*="/admin/payment/"]')->count(), 'deposit list links to its payments');
+        self::assertStringNotContainsString('Платежи', $crawler->filter('thead')->text());
+        self::assertGreaterThanOrEqual(1, $crawler->filter('tbody a[href*="/admin/deposit-request/"]')->count());
+
+        $crawler = $client->request('GET', $this->url(WithdrawalRequestCrudController::class, 'detail', $withdrawal->getId()));
+        self::assertGreaterThanOrEqual(1, $crawler->filter('a[href*="/admin/payment/"]')->count(), 'the card keeps its payments block');
 
         $crawler = $client->request('GET', $this->url(PaymentCrudController::class, 'index'));
+        self::assertResponseIsSuccessful();
+        $headers = $crawler->filter('thead th')->each(static fn ($th) => trim($th->text()));
+        self::assertLessThan(array_search('UUID (Okean)', $headers, true), array_search('ID заявки', $headers, true));
         self::assertStringContainsString($withdrawal->getUuid(), $crawler->text());
         self::assertStringContainsString($deposit->getUuid(), $crawler->text());
-        $withdrawalLink = $crawler->filter('a[href*="/admin/withdrawal-request/"]');
-        self::assertStringContainsString((string) $withdrawal->getId(), $withdrawalLink->first()->attr('href'));
+        self::assertStringContainsString('Исходящий', $crawler->text());
+        self::assertStringContainsString('Входящий', $crawler->text());
+        self::assertStringNotContainsString('WITHDRAWAL', $crawler->text());
+        self::assertStringNotContainsString('DEPOSIT', $crawler->filter('tbody')->text());
+        self::assertStringContainsString((string) $withdrawal->getId(), $crawler->filter('a[href*="/admin/withdrawal-request/"]')->first()->attr('href'));
         self::assertGreaterThanOrEqual(1, $crawler->filter('a[href*="/admin/deposit-request/"]')->count());
+        self::assertCount(0, $crawler->filter('tbody a:contains("'.$withdrawal->getUuid().'")'), 'the UUID is plain text, links are not duplicated');
+
+        $crawler = $client->request('GET', $this->url(PaymentCrudController::class, 'detail', $payment->getId()));
+        self::assertStringContainsString('Исходящий', $crawler->text());
+    }
+
+    public function testAmountsAreShownWithoutTrailingZerosAndTypeFilterUsesDirectionLabels(): void
+    {
+        self::assertSame('55', \App\Twig\AdminThemeExtension::trimAmount('55.000000000000000000'));
+        self::assertSame('0.001185', \App\Twig\AdminThemeExtension::trimAmount('0.00118500'));
+        self::assertSame('100', \App\Twig\AdminThemeExtension::trimAmount('100'));
+        self::assertSame('10', \App\Twig\AdminThemeExtension::trimAmount('10.0'));
+
+        $client = static::createClient();
+        $this->login($client, self::getContainer()->get(EntityManagerInterface::class));
+        self::getContainer()->get(DepositRequestService::class)->createOrGetExisting(Uuid::v4()->toRfc4122(), 'fake', 'USDT', 'TRC20', '55.000000000000000000');
+
+        $crawler = $client->request('GET', $this->url(DepositRequestCrudController::class, 'index'));
+        self::assertStringNotContainsString('55.000', $crawler->filter('tbody')->text());
+        self::assertStringContainsString('55', $crawler->filter('tbody')->text());
+
+        $filterUrl = $this->url(PaymentCrudController::class, 'index').'?filters[type][comparison]=%3D&filters[type][value]=';
+        $crawler = $client->request('GET', $filterUrl.'deposit');
+        self::assertResponseIsSuccessful();
+        self::assertStringNotContainsString('Исходящий', $crawler->filter('tbody')->text());
+        $crawler = $client->request('GET', $filterUrl.'withdrawal');
+        self::assertResponseIsSuccessful();
+        self::assertStringNotContainsString('Входящий', $crawler->filter('tbody')->text());
     }
 }

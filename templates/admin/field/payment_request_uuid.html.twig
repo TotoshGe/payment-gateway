@@ -1,0 +1,9 @@
+{% set related = entity.instance.depositRequest ?? entity.instance.withdrawalRequest %}
+{% if related is null %}
+    <span class="pg-muted">—</span>
+{% else %}
+    <span class="pg-copy">
+        <span class="pg-copy__text">{{ related.uuid }}</span>
+        <button type="button" class="pg-copy__btn" data-pg-copy="{{ related.uuid }}" title="Скопировать" aria-label="Скопировать"><i class="fa fa-regular fa-copy" aria-hidden="true"></i></button>
+    </span>
+{% endif %}

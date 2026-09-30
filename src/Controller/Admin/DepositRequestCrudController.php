@@ -50,16 +50,17 @@ final class DepositRequestCrudController extends AbstractCrudController
 
     public function configureFields(string $pageName): iterable
     {
-        yield TextField::new('id', 'ID (gateway, request_id)')->onlyOnDetail()->setTemplatePath('admin/field/copyable.html.twig');
+        yield TextField::new('id', 'ID заявки')->onlyOnDetail()->setTemplatePath('admin/field/copyable.html.twig');
+        yield TextField::new('id', 'ID заявки')->onlyOnIndex()->setTemplatePath('admin/field/request_id_link.html.twig');
         yield TextField::new('uuid', 'UUID (Okean)')->setTemplatePath('admin/field/copyable.html.twig');
         yield AssociationField::new('panel', 'Панель');
         yield TextField::new('currency', 'Валюта');
         yield TextField::new('network', 'Сеть')->hideOnIndex();
         yield ChoiceField::new('status', 'Статус')->setChoices(self::statusChoices())->renderAsBadges(self::statusBadgeTypes());
-        yield TextField::new('expectedAmount', 'Ожидаемая сумма');
-        yield TextField::new('receivedAmount', 'Полученная сумма')->hideOnIndex();
+        yield TextField::new('expectedAmount', 'Ожидаемая сумма')->setTemplatePath('admin/field/amount.html.twig');
+        yield TextField::new('receivedAmount', 'Полученная сумма')->hideOnIndex()->setTemplatePath('admin/field/amount.html.twig');
         yield TextField::new('address', 'Адрес')->hideOnIndex()->setTemplatePath('admin/field/copyable.html.twig');
-        yield AssociationField::new('payments', 'Платежи')->setTemplatePath('admin/field/payments.html.twig');
+        yield AssociationField::new('payments', 'Платежи')->onlyOnDetail()->setTemplatePath('admin/field/payments.html.twig');
         yield ChoiceField::new('callbackStatus', 'Статус колбэка')->setChoices(self::callbackStatusChoices())->renderAsBadges(self::callbackStatusBadgeTypes())->hideOnIndex();
         yield DateTimeField::new('expiresAt', 'Истекает')->hideOnIndex();
         yield DateTimeField::new('lastPolledAt', 'Последний опрос')->hideOnIndex();

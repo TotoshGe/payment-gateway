@@ -1,0 +1,5 @@
+{% if field.value is null or field.value == '' %}
+    <span class="pg-muted">—</span>
+{% else %}
+    {{ field.value|pg_amount }}
+{% endif %}
