@@ -402,6 +402,9 @@ Okean не знает про панели: выбор делает gateway (`Pan
 копируются с панели `binance`, если она есть, иначе запасной список.
 Для доставки колбеков и истечения заявок нужны обычные воркеры
 (`messenger:consume async`, `app:payment-gateway:poll-deposits binance_test`).
+Доставка колбеков постоянно работает как systemd-сервис
+`deploy/systemd/payment-gateway-messenger.service` (`Restart=always`, сам
+перезапускается раз в час / при 128M).
 
 ---
 
