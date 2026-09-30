@@ -9,11 +9,13 @@ use App\Entity\Payment;
 use App\Enum\PaymentRequestStatus;
 use App\Enum\PaymentStatus;
 use App\Panel\Dto\WithdrawalExecutionRequest;
-use App\Panel\Exception\PanelException;
 use App\Panel\PanelRegistry;
 use App\Repository\PanelRepository;
 use App\Repository\WithdrawalRequestRepository;
+use App\Repository\PaymentRepository;
 use App\Service\Exception\PanelNotFoundException;
+use App\Service\Exception\WithdrawalPaymentException;
+use Doctrine\DBAL\LockMode;
 use Doctrine\ORM\EntityManagerInterface;
 use Psr\Log\LoggerInterface;
 use Symfony\Component\Uid\Uuid;
@@ -27,6 +29,7 @@ final class WithdrawalRequestService
         private readonly PanelRouter $panelRouter,
         private readonly PaymentRequestSynchronizer $synchronizer,
         private readonly CallbackDispatcher $callbackDispatcher,
+        private readonly PaymentRepository $paymentRepository,
         private readonly EntityManagerInterface $entityManager,
         private readonly LoggerInterface $logger,
     ) {
@@ -62,47 +65,88 @@ final class WithdrawalRequestService
         $clientWithdrawalId = Uuid::v4()->toRfc4122();
         $withdrawalRequest = new WithdrawalRequest($uuid, $panel, $currency, $network, $amount, $destinationAddress, $destinationTag, $clientWithdrawalId);
 
-        $payment = Payment::forWithdrawal($withdrawalRequest);
-
         $this->entityManager->persist($withdrawalRequest);
-        $this->entityManager->persist($payment);
         $this->entityManager->flush();
-
-        $driver = $this->panelRegistry->getDriverFor($panel);
-
-        try {
-            $result = $driver->executeWithdrawal($panel, new WithdrawalExecutionRequest(
-                currency: $currency,
-                network: $network,
-                amount: $amount,
-                destinationAddress: $destinationAddress,
-                destinationTag: $destinationTag,
-                clientWithdrawalId: $clientWithdrawalId,
-            ));
-
-            $withdrawalRequest->setPanelWithdrawalReference($result->panelWithdrawalReference);
-            $withdrawalRequest->setStatus($result->status);
-            $payment->setPanelReference($result->panelWithdrawalReference);
-            $this->entityManager->flush();
-        } catch (PanelException $exception) {
-            $this->logger->error('Panel rejected withdrawal submission', [
-                'panel' => $panel->getCode(),
-                'uuid' => $uuid,
-                'error' => $exception->getMessage(),
-            ]);
-
-            $payment->setStatus(PaymentStatus::FAILED)->setReason($exception->getMessage());
-            $withdrawalRequest->setStatus(PaymentRequestStatus::SUBMIT_FAILED);
-            $withdrawalRequest->setFailureReason($exception->getMessage());
-            $this->entityManager->flush();
-            $this->callbackDispatcher->dispatchFor($withdrawalRequest);
-        }
 
         return ['request' => $withdrawalRequest, 'created' => true];
     }
 
-    public function applyPaymentUpdate(WithdrawalRequest $withdrawalRequest, PaymentStatus $status, ?string $txHash, ?string $reason): void
+    /**
+     * Operator action ("Создать платёж"): the only place a withdrawal is sent
+     * to a panel. The payment row is committed under a row lock before the
+     * panel is called, so a double click cannot send the funds twice. Any
+     * failure after that still leaves the payment (status FAILED, reason
+     * stored) and pauses the request -- silently, Okean is not told.
+     *
+     * @throws WithdrawalPaymentException when the request is not eligible; nothing is created
+     */
+    public function createPayment(WithdrawalRequest $withdrawalRequest): Payment
     {
+        $connection = $this->entityManager->getConnection();
+        $connection->beginTransaction();
+        try {
+            $this->entityManager->refresh($withdrawalRequest, LockMode::PESSIMISTIC_WRITE);
+
+            if (PaymentRequestStatus::AWAITING_PAYOUT !== $withdrawalRequest->getStatus()) {
+                throw new WithdrawalPaymentException(sprintf('Платёж можно создать только для заявки в статусе «%s».', PaymentRequestStatus::AWAITING_PAYOUT->label()));
+            }
+            if ($this->paymentRepository->count(['withdrawalRequest' => $withdrawalRequest]) > 0) {
+                throw new WithdrawalPaymentException('У заявки уже есть платёж.');
+            }
+            if (!$withdrawalRequest->getPanel()->isActive()) {
+                throw new WithdrawalPaymentException(sprintf('Панель «%s» выключена; платёж не создан.', $withdrawalRequest->getPanel()->getCode()));
+            }
+
+            $payment = Payment::forWithdrawal($withdrawalRequest);
+            $this->entityManager->persist($payment);
+            $this->entityManager->flush();
+            $connection->commit();
+        } catch (\Throwable $exception) {
+            // Not wrapInTransaction(): it would close the EntityManager on a plain refusal.
+            $connection->rollBack();
+
+            throw $exception;
+        }
+
+        $panel = $withdrawalRequest->getPanel();
+
+        try {
+            $result = $this->panelRegistry->getDriverFor($panel)->executeWithdrawal($panel, new WithdrawalExecutionRequest(
+                currency: $withdrawalRequest->getCurrency(),
+                network: $withdrawalRequest->getNetwork(),
+                amount: $withdrawalRequest->getAmount(),
+                destinationAddress: $withdrawalRequest->getDestinationAddress(),
+                destinationTag: $withdrawalRequest->getDestinationTag(),
+                clientWithdrawalId: $withdrawalRequest->getClientWithdrawalId(),
+            ));
+
+            $withdrawalRequest->setPanelWithdrawalReference($result->panelWithdrawalReference);
+            $payment->setPanelReference($result->panelWithdrawalReference);
+        } catch (\Throwable $exception) {
+            $this->logger->error('Withdrawal payment failed on the panel', [
+                'panel' => $panel->getCode(),
+                'uuid' => $withdrawalRequest->getUuid(),
+                'error' => $exception->getMessage(),
+            ]);
+
+            $payment->setStatus(PaymentStatus::FAILED)->setReason($exception->getMessage() ?: $exception::class);
+        }
+
+        $this->synchronizer->syncWithdrawal($withdrawalRequest);
+        $this->entityManager->flush();
+
+        return $payment;
+    }
+
+    public function applyPaymentUpdate(
+        WithdrawalRequest $withdrawalRequest,
+        PaymentStatus $status,
+        ?string $txHash,
+        ?string $reason,
+        ?string $observedAmount = null,
+        ?int $confirmations = null,
+        ?int $requiredConfirmations = null,
+    ): void {
         if ($withdrawalRequest->getStatus()->isTerminal()) {
             return;
         }
@@ -116,14 +160,28 @@ final class WithdrawalRequestService
             return;
         }
 
-        if ($payment->getStatus() !== $status || $payment->getTxHash() !== $txHash) {
-            $payment->setStatus($status)->setTxHash($txHash)->setReason($reason);
+        $paymentChanged = $payment->getStatus() !== $status
+            || (null !== $txHash && $payment->getTxHash() !== $txHash)
+            || (null !== $observedAmount && $payment->getAmount() !== $observedAmount)
+            || $payment->getConfirmations() !== $confirmations
+            || $payment->getRequiredConfirmations() !== $requiredConfirmations;
+
+        if ($paymentChanged) {
+            $payment->setStatus($status)->setTxHash($txHash ?? $payment->getTxHash())->setReason($reason)
+                ->setConfirmations($confirmations)->setRequiredConfirmations($requiredConfirmations);
+            if (null !== $observedAmount) {
+                $payment->setAmount($observedAmount);
+            }
         }
 
         $changed = $this->synchronizer->syncWithdrawal($withdrawalRequest);
         $this->entityManager->flush();
 
-        if ($changed && ($withdrawalRequest->getStatus()->isTerminal() || PaymentRequestStatus::PAUSED === $withdrawalRequest->getStatus())) {
+        $newStatus = $withdrawalRequest->getStatus();
+        if (PaymentRequestStatus::COMPLETED === $newStatus && PaymentStatus::COMPLETED === $status && $changed) {
+            $this->callbackDispatcher->dispatchFor($withdrawalRequest);
+        } elseif (PaymentRequestStatus::AWAITING_CONFIRMATIONS === $newStatus && ($changed || $paymentChanged)) {
+            // Repeats as confirmations grow; the status itself stays put.
             $this->callbackDispatcher->dispatchFor($withdrawalRequest);
         }
     }

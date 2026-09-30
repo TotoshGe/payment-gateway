@@ -8,8 +8,6 @@ use App\Controller\Admin\DepositRequestCrudController;
 use App\Controller\Admin\WithdrawalRequestCrudController;
 use App\Entity\AdminUser;
 use App\Entity\Panel;
-use App\Enum\PaymentRequestStatus;
-use App\Repository\DepositRequestRepository;
 use App\Service\DepositRequestService;
 use App\Service\WithdrawalRequestService;
 use App\Tests\Functional\FunctionalTestCase;
@@ -19,8 +17,8 @@ use Symfony\Bundle\FrameworkBundle\KernelBrowser;
 use Symfony\Component\DomCrawler\Crawler;
 
 /**
- * Renders the real admin pages through a logged-in session and clicks the
- * Test Panel buttons, rather than trusting the action configuration by eye.
+ * Renders the real admin pages through a logged-in session to prove the
+ * Test Panel simulation buttons are gone (the simulator stays console-only).
  */
 final class TestPanelAdminTest extends FunctionalTestCase
 {
@@ -50,63 +48,26 @@ final class TestPanelAdminTest extends FunctionalTestCase
         return self::getContainer()->get(AdminUrlGenerator::class)->setController($controller)->setAction('index')->generateUrl();
     }
 
-    public function testButtonsAppearOnlyForTestPanelRequestsAndConfirmWorks(): void
-    {
-        $client = static::createClient();
-        $em = self::getContainer()->get(EntityManagerInterface::class);
-        $this->loginAsAdmin($client, $em);
-        $this->panel($em, 'binance_test', 'Test Panel');
-        $this->panel($em, 'fake', 'Fake panel');
-
-        $service = self::getContainer()->get(DepositRequestService::class);
-        $testDeposit = $service->createOrGetExisting('admin-test-'.uniqid(), 'binance_test', 'USDT', 'TRC20', '10')['request'];
-        $service->createOrGetExisting('admin-real-'.uniqid(), 'fake', 'USDT', 'TRC20', '10');
-
-        $crawler = $client->request('GET', $this->indexUrl(DepositRequestCrudController::class));
-        self::assertResponseIsSuccessful();
-
-        self::assertStringContainsString('Test Panel', $crawler->text());
-        self::assertStringNotContainsString('[TEST]', $crawler->text());
-        $confirmForms = $crawler->filter('form[action*="test-confirm"]');
-        self::assertCount(1, $confirmForms, 'only the test panel row gets the confirm button, not the other panel');
-        self::assertStringContainsString('Тестовая панель: подтвердить оплату', $crawler->filter('a[data-ea-action-form-id="'.$confirmForms->attr('id').'"]')->text());
-        self::assertCount(1, $crawler->filter('form[action*="test-received"]'));
-        self::assertCount(0, $crawler->filter('form[action*="test-fail"]'), 'deposits cannot fail on Binance, so neither here');
-
-        $client->submit($confirmForms->form());
-        $client->followRedirect();
-        self::assertSelectorTextContains('body', '[ТЕСТ-ПАНЕЛЬ] Заявка на пополнение переведена в статус «Завершена»');
-
-        $em->clear();
-        $reloaded = self::getContainer()->get(DepositRequestRepository::class)->find($testDeposit->getId());
-        self::assertSame(PaymentRequestStatus::COMPLETED, $reloaded->getStatus());
-
-        $crawler = $client->request('GET', $this->indexUrl(DepositRequestCrudController::class));
-        self::assertCount(0, $crawler->filter('form[action*="test-confirm"]'), 'no button once the request is terminal');
-    }
-
-    public function testWithdrawalConfirmButton(): void
+    public function testNoTestPanelButtonsAreOfferedOnAnyRequest(): void
     {
         $client = static::createClient();
         $em = self::getContainer()->get(EntityManagerInterface::class);
         $this->loginAsAdmin($client, $em);
         $this->panel($em, 'binance_test', 'Test Panel');
 
+        $deposits = self::getContainer()->get(DepositRequestService::class);
+        $deposits->createOrGetExisting('admin-test-'.uniqid(), 'binance_test', 'USDT', 'TRC20', '10');
         $withdrawal = self::getContainer()->get(WithdrawalRequestService::class)
             ->createOrGetExisting('admin-wd-'.uniqid(), 'binance_test', 'USDT', 'TRC20', '5', 'TSomeDestination', null)['request'];
+        self::getContainer()->get(WithdrawalRequestService::class)->createPayment($withdrawal);
 
-        $crawler = $client->request('GET', $this->indexUrl(WithdrawalRequestCrudController::class));
-        self::assertResponseIsSuccessful();
-        $form = $crawler->filter('form[action*="test-confirm"]');
-        self::assertCount(1, $form);
-
-        $client->submit($form->form());
-        $client->followRedirect();
-        self::assertSelectorTextContains('body', '[ТЕСТ-ПАНЕЛЬ] Заявка на вывод переведена в статус «Завершена»');
-
-        $em->clear();
-        $reloaded = $em->getRepository($withdrawal::class)->find($withdrawal->getId());
-        self::assertSame(PaymentRequestStatus::COMPLETED, $reloaded->getStatus());
+        foreach ([DepositRequestCrudController::class, WithdrawalRequestCrudController::class] as $controller) {
+            $crawler = $client->request('GET', $this->indexUrl($controller));
+            self::assertResponseIsSuccessful();
+            self::assertStringContainsString('Test Panel', $crawler->text(), 'the requests are listed');
+            self::assertStringNotContainsString('Тестовая панель', $crawler->text());
+            self::assertCount(0, $crawler->filter('form[action*="test-"]'));
+        }
     }
 
     public function testDashboardHasNoTestBanner(): void

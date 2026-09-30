@@ -121,6 +121,8 @@ class PollDepositsCommand extends Command
                     $update->observedAmount,
                     $update->confirmations,
                     $update->panelDepositReference,
+                    null,
+                    $update->requiredConfirmations,
                 );
             }
         } catch (PanelException $exception) {

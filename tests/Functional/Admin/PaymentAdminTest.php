@@ -102,6 +102,7 @@ final class PaymentAdminTest extends FunctionalTestCase
 
         $service = self::getContainer()->get(WithdrawalRequestService::class);
         $withdrawal = $service->createOrGetExisting(Uuid::v4()->toRfc4122(), 'fake', 'USDT', 'TRC20', '7', 'TDest', null)['request'];
+        $service->createPayment($withdrawal);
         $payment = $withdrawal->getLeadPayment();
 
         $crawler = $client->request('GET', $this->url(PaymentCrudController::class, 'detail', (string) $payment->getId()));

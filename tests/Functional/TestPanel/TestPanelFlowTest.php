@@ -16,6 +16,7 @@ use App\Repository\DepositRequestRepository;
 use App\Repository\PanelWalletAddressRepository;
 use App\Repository\WithdrawalRequestRepository;
 use App\Service\DepositRequestService;
+use App\Service\WithdrawalRequestService;
 use App\Tests\Functional\FunctionalTestCase;
 use Doctrine\ORM\EntityManagerInterface;
 use Symfony\Bundle\FrameworkBundle\Console\Application;
@@ -123,8 +124,8 @@ final class TestPanelFlowTest extends FunctionalTestCase
         $find = static fn (array $created): DepositRequest => $repository->find(\Symfony\Component\Uid\Uuid::fromString($created['id']));
 
         $received = $find($this->createDeposit($client, 'bt-recv-'.uniqid()));
-        $simulator->transitionDeposit($received, PaymentRequestStatus::RECEIVED);
-        self::assertSame(PaymentRequestStatus::RECEIVED, $received->getStatus());
+        $simulator->transitionDeposit($received, PaymentRequestStatus::AWAITING_CONFIRMATIONS);
+        self::assertSame(PaymentRequestStatus::AWAITING_CONFIRMATIONS, $received->getStatus());
         self::assertCount(1, $callbacks->findBy(['requestId' => $received->getId()]), 'the seen payment is announced with deposit.updated, same as the real poller');
         $simulator->transitionDeposit($received, PaymentRequestStatus::COMPLETED);
         self::assertSame(PaymentRequestStatus::COMPLETED, $received->getStatus());
@@ -173,13 +174,18 @@ final class TestPanelFlowTest extends FunctionalTestCase
         ];
 
         $created = $this->post($client, '/api/v1/withdrawals', $body('bt-wd-'.uniqid()), 201);
-        self::assertSame('submitted', $created['status']);
+        self::assertSame('awaiting_payout', $created['status']);
+        self::assertSame([], $created['payments'], 'a withdrawal starts without a payment; nothing is sent until an operator creates one');
         self::assertArrayNotHasKey('test_mode', $created);
         self::assertArrayNotHasKey('notice', $created);
 
         $repository = $container->get(WithdrawalRequestRepository::class);
         /** @var WithdrawalRequest $withdrawal */
         $withdrawal = $repository->find(\Symfony\Component\Uid\Uuid::fromString($created['id']));
+        self::assertNull($withdrawal->getPanelWithdrawalReference());
+
+        $container->get(WithdrawalRequestService::class)->createPayment($withdrawal);
+        self::assertSame(PaymentRequestStatus::SUBMITTED, $withdrawal->getStatus());
         self::assertStringStartsWith('TEST-WD-', (string) $withdrawal->getPanelWithdrawalReference());
 
         $simulator = $container->get(TestPanelSimulator::class);
@@ -194,11 +200,14 @@ final class TestPanelFlowTest extends FunctionalTestCase
         self::assertArrayNotHasKey('test_mode', $deliveries[0]->getPayload());
 
         $second = $this->post($client, '/api/v1/withdrawals', $body('bt-wd2-'.uniqid()), 201);
-        $failing = $repository->find(\Symfony\Component\Uid\Uuid::fromString($second['id']));
+        $container = self::getContainer();
+        $simulator = $container->get(TestPanelSimulator::class);
+        $failing = $container->get(WithdrawalRequestRepository::class)->find(\Symfony\Component\Uid\Uuid::fromString($second['id']));
+        $container->get(WithdrawalRequestService::class)->createPayment($failing);
         $simulator->transitionWithdrawal($failing, PaymentRequestStatus::FAILED);
-        self::assertSame(PaymentRequestStatus::FAILED, $failing->getStatus());
+        self::assertSame(PaymentRequestStatus::PAUSED, $failing->getStatus(), 'a failed payment pauses the request');
         self::assertNotSame('', (string) $failing->getFailureReason());
-        self::assertSame('withdrawal.failed', $container->get(CallbackDeliveryRepository::class)->findBy(['requestId' => $failing->getId()])[0]->getEventType());
+        self::assertSame([], $container->get(CallbackDeliveryRepository::class)->findBy(['requestId' => $failing->getId()]), 'pausing sends nothing to Okean');
     }
 
     public function testSimulatorRefusesRequestsOnOtherPanels(): void

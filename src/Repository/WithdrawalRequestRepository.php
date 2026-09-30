@@ -37,7 +37,7 @@ class WithdrawalRequestRepository extends ServiceEntityRepository
             ->andWhere('IDENTITY(w.panel) = :panelId')
             ->andWhere('w.status IN (:statuses)')
             ->setParameter('panelId', $panel->getId(), 'uuid')
-            ->setParameter('statuses', [PaymentRequestStatus::SUBMITTED, PaymentRequestStatus::PROCESSING])
+            ->setParameter('statuses', [PaymentRequestStatus::SUBMITTED, PaymentRequestStatus::PROCESSING, PaymentRequestStatus::AWAITING_CONFIRMATIONS])
             ->getQuery()
             ->getResult();
     }

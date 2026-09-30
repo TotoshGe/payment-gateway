@@ -7,8 +7,6 @@ namespace App\Controller\Admin;
 use App\Entity\DepositRequest;
 use App\Enum\CallbackDeliveryStatus;
 use App\Enum\PaymentRequestStatus;
-use App\Panel\TestPanel\TestPanelSimulationException;
-use App\Panel\TestPanel\TestPanelSimulator;
 use App\Service\CallbackDispatcher;
 use App\Service\DepositRequestService;
 use Doctrine\ORM\EntityManagerInterface;
@@ -34,7 +32,6 @@ final class DepositRequestCrudController extends AbstractCrudController
         private readonly DepositRequestService $depositRequestService,
         private readonly CallbackDispatcher $callbackDispatcher,
         private readonly EntityManagerInterface $entityManager,
-        private readonly TestPanelSimulator $testPanelSimulator,
     ) {
     }
 
@@ -53,6 +50,7 @@ final class DepositRequestCrudController extends AbstractCrudController
 
     public function configureFields(string $pageName): iterable
     {
+        yield TextField::new('id', 'ID (gateway, request_id)')->onlyOnDetail()->setTemplatePath('admin/field/copyable.html.twig');
         yield TextField::new('uuid', 'UUID (Okean)')->setTemplatePath('admin/field/copyable.html.twig');
         yield AssociationField::new('panel', 'Панель');
         yield TextField::new('currency', 'Валюта');
@@ -61,7 +59,7 @@ final class DepositRequestCrudController extends AbstractCrudController
         yield TextField::new('expectedAmount', 'Ожидаемая сумма');
         yield TextField::new('receivedAmount', 'Полученная сумма')->hideOnIndex();
         yield TextField::new('address', 'Адрес')->hideOnIndex()->setTemplatePath('admin/field/copyable.html.twig');
-        yield AssociationField::new('payments', 'Платежи')->onlyOnDetail()->setTemplatePath('admin/field/payments.html.twig');
+        yield AssociationField::new('payments', 'Платежи')->setTemplatePath('admin/field/payments.html.twig');
         yield ChoiceField::new('callbackStatus', 'Статус колбэка')->setChoices(self::callbackStatusChoices())->renderAsBadges(self::callbackStatusBadgeTypes())->hideOnIndex();
         yield DateTimeField::new('expiresAt', 'Истекает')->hideOnIndex();
         yield DateTimeField::new('lastPolledAt', 'Последний опрос')->hideOnIndex();
@@ -93,39 +91,7 @@ final class DepositRequestCrudController extends AbstractCrudController
             ->add(Crud::PAGE_INDEX, $resendCallback)
             ->add(Crud::PAGE_DETAIL, $resendCallback);
 
-        $testActions = [
-            'testReceived' => ['Тестовая панель: отметить получение', PaymentRequestStatus::RECEIVED],
-            'testConfirm' => ['Тестовая панель: подтвердить оплату', PaymentRequestStatus::COMPLETED],
-            'testCancel' => ['Тестовая панель: отменить платёж', PaymentRequestStatus::PAUSED],
-        ];
-        foreach ($testActions as $method => [$label, $target]) {
-            $action = Action::new($method, $label)
-                ->linkToCrudAction($method)
-                ->renderAsForm()
-                ->displayIf(fn (DepositRequest $d) => \in_array($target, $this->testPanelSimulator->availableDepositTargets($d), true));
-
-            $actions = $actions->add(Crud::PAGE_INDEX, $action)->add(Crud::PAGE_DETAIL, $action);
-        }
-
         return $actions;
-    }
-
-    #[AdminRoute(path: '/{entityId}/test-received', name: '_test_received')]
-    public function testReceived(AdminContext $context): RedirectResponse
-    {
-        return $this->simulate($context, PaymentRequestStatus::RECEIVED);
-    }
-
-    #[AdminRoute(path: '/{entityId}/test-confirm', name: '_test_confirm')]
-    public function testConfirm(AdminContext $context): RedirectResponse
-    {
-        return $this->simulate($context, PaymentRequestStatus::COMPLETED);
-    }
-
-    #[AdminRoute(path: '/{entityId}/test-cancel', name: '_test_cancel')]
-    public function testCancel(AdminContext $context): RedirectResponse
-    {
-        return $this->simulate($context, PaymentRequestStatus::PAUSED);
     }
 
     #[AdminRoute(path: '/{entityId}/resume', name: '_resume')]
@@ -134,21 +100,6 @@ final class DepositRequestCrudController extends AbstractCrudController
         /** @var DepositRequest $depositRequest */
         $depositRequest = $context->getEntity()->getInstance();
         $this->depositRequestService->resume($depositRequest);
-
-        return $this->redirect($context->getRequest()->headers->get('referer') ?? '/admin');
-    }
-
-    private function simulate(AdminContext $context, PaymentRequestStatus $target): RedirectResponse
-    {
-        /** @var DepositRequest $depositRequest */
-        $depositRequest = $context->getEntity()->getInstance();
-
-        try {
-            $this->testPanelSimulator->transitionDeposit($depositRequest, $target);
-            $this->addFlash('success', sprintf('[ТЕСТ-ПАНЕЛЬ] Заявка на пополнение переведена в статус «%s» (вручную; по терминальным статусам Okean получает колбэк).', $target->label()));
-        } catch (TestPanelSimulationException $exception) {
-            $this->addFlash('danger', '[ТЕСТ-ПАНЕЛЬ] '.$exception->getMessage());
-        }
 
         return $this->redirect($context->getRequest()->headers->get('referer') ?? '/admin');
     }

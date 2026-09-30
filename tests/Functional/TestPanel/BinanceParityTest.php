@@ -14,6 +14,7 @@ use App\Repository\CallbackDeliveryRepository;
 use App\Repository\PanelWalletAddressRepository;
 use App\Security\PanelCredentialsEncryptor;
 use App\Service\DepositRequestService;
+use App\Service\WithdrawalRequestService;
 use App\Tests\Fixture\ScriptedHttpClient;
 use App\Tests\Functional\FunctionalTestCase;
 use Doctrine\ORM\EntityManagerInterface;
@@ -198,7 +199,7 @@ final class BinanceParityTest extends FunctionalTestCase
 
         $intermediate = $this->reload(DepositRequest::class, $second['id']);
         if ($isTest) {
-            self::getContainer()->get(TestPanelSimulator::class)->transitionDeposit($intermediate, PaymentRequestStatus::RECEIVED);
+            self::getContainer()->get(TestPanelSimulator::class)->transitionDeposit($intermediate, PaymentRequestStatus::AWAITING_CONFIRMATIONS);
         } else {
             $this->binanceDepositHistory = [['address' => $second['address'], 'addressTag' => '', 'amount' => '100.00', 'status' => 6, 'confirmTimes' => '1/12', 'txId' => 'tx-2']];
             $this->pollDeposits($code);
@@ -221,16 +222,21 @@ final class BinanceParityTest extends FunctionalTestCase
         $transcript['withdrawal_repeat_http'] = $this->call($client, 'POST', '/api/v1/withdrawals', $withdrawalBody)[0];
 
         $entity = $this->reload(WithdrawalRequest::class, $withdrawal['id']);
+        self::getContainer()->get(WithdrawalRequestService::class)->createPayment($entity);
+        $entity = $this->reload(WithdrawalRequest::class, $withdrawal['id']);
+        $transcript['withdrawal_status_after_create_payment'] = $entity->getStatus()->value;
         $steps = [];
-        foreach ([PaymentRequestStatus::PROCESSING, PaymentRequestStatus::COMPLETED] as $target) {
+        foreach ([PaymentRequestStatus::PROCESSING, PaymentRequestStatus::AWAITING_CONFIRMATIONS, PaymentRequestStatus::COMPLETED] as $target) {
             if ($isTest) {
                 self::getContainer()->get(TestPanelSimulator::class)->transitionWithdrawal($entity, $target);
             } else {
                 $this->binanceWithdrawalHistory = [[
                     'id' => $this->binanceWithdrawalId,
                     'withdrawOrderId' => $this->binanceClientWithdrawalId,
-                    'status' => PaymentRequestStatus::PROCESSING === $target ? 4 : 6,
+                    'status' => PaymentRequestStatus::COMPLETED === $target ? 6 : 4,
                     'txId' => PaymentRequestStatus::PROCESSING === $target ? '' : 'tx-out',
+                    'amount' => '25.00000000',
+                    'confirmNo' => 1,
                 ]];
                 $this->pollWithdrawals($code);
             }
@@ -242,6 +248,8 @@ final class BinanceParityTest extends FunctionalTestCase
         $transcript['withdrawal_callbacks'] = $this->callbacks($entity->getId());
 
         [, $failing] = $this->call($client, 'POST', '/api/v1/withdrawals', ['uuid' => \Symfony\Component\Uid\Uuid::v5(\Symfony\Component\Uid\Uuid::fromString(\Symfony\Component\Uid\Uuid::NAMESPACE_OID), 'parity-wd2-'.$code)->toRfc4122()] + $withdrawalBody);
+        $entity = $this->reload(WithdrawalRequest::class, $failing['id']);
+        self::getContainer()->get(WithdrawalRequestService::class)->createPayment($entity);
         $entity = $this->reload(WithdrawalRequest::class, $failing['id']);
         if ($isTest) {
             self::getContainer()->get(TestPanelSimulator::class)->transitionWithdrawal($entity, PaymentRequestStatus::FAILED);

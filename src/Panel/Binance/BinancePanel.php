@@ -146,8 +146,9 @@ class BinancePanel extends AbstractHttpPanel implements PanelInterface
                     depositRequestId: $matched->getId(),
                     status: $status,
                     observedAmount: (string) ($deposit['amount'] ?? '0'),
-                    confirmations: self::parseConfirmations($deposit['confirmTimes'] ?? null),
+                    confirmations: self::parseConfirmTimes($deposit['confirmTimes'] ?? null)[0],
                     panelDepositReference: isset($deposit['txId']) ? (string) $deposit['txId'] : null,
+                    requiredConfirmations: self::parseConfirmTimes($deposit['confirmTimes'] ?? null)[1],
                 );
             }
         }
@@ -205,6 +206,9 @@ class BinancePanel extends AbstractHttpPanel implements PanelInterface
                 status: $status,
                 txHash: isset($withdrawal['txId']) && '' !== $withdrawal['txId'] ? (string) $withdrawal['txId'] : null,
                 failureReason: $status->isFinal() && \App\Enum\PaymentStatus::COMPLETED !== $status ? 'Binance withdraw status '.($withdrawal['status'] ?? '?') : null,
+                observedAmount: isset($withdrawal['amount']) ? (string) $withdrawal['amount'] : null,
+                // Withdraw history reports only the current count (`confirmNo`); Binance publishes no required count for withdrawals.
+                confirmations: isset($withdrawal['confirmNo']) && is_numeric($withdrawal['confirmNo']) ? (int) $withdrawal['confirmNo'] : null,
             );
         }
     }
@@ -276,14 +280,19 @@ class BinancePanel extends AbstractHttpPanel implements PanelInterface
         return $decoded;
     }
 
-    private static function parseConfirmations(mixed $confirmTimes): ?int
+    /**
+     * Deposit history `confirmTimes` is "current/required", e.g. "3/12".
+     *
+     * @return array{0: ?int, 1: ?int}
+     */
+    private static function parseConfirmTimes(mixed $confirmTimes): array
     {
         if (!\is_string($confirmTimes) || !str_contains($confirmTimes, '/')) {
-            return null;
+            return [null, null];
         }
 
-        [$current] = explode('/', $confirmTimes, 2);
+        [$current, $required] = explode('/', $confirmTimes, 2);
 
-        return is_numeric($current) ? (int) $current : null;
+        return [is_numeric($current) ? (int) $current : null, is_numeric($required) ? (int) $required : null];
     }
 }

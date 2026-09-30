@@ -84,7 +84,7 @@ final class PaymentLifecycleTest extends FunctionalTestCase
         $em->clear();
 
         $deposit = $em->getRepository(DepositRequest::class)->find($deposit->getId());
-        self::assertSame(PaymentRequestStatus::RECEIVED, $deposit->getStatus(), 'request shows the payment is awaiting network confirmation');
+        self::assertSame(PaymentRequestStatus::AWAITING_CONFIRMATIONS, $deposit->getStatus(), 'request shows the payment is awaiting network confirmation');
         self::assertCount(1, $deposit->getPayments());
         $payment = $deposit->getPayments()->first();
         self::assertSame(PaymentStatus::CONFIRMING, $payment->getStatus());
@@ -182,58 +182,9 @@ final class PaymentLifecycleTest extends FunctionalTestCase
         self::assertNull($payment->toArray()['network']);
     }
 
-    public function testWithdrawalHasItsPaymentFromCreationAndFollowsIt(): void
+    private function withdrawal(string $amount = '12.50', ?string $network = null): WithdrawalRequest
     {
-        $em = $this->boot();
-        $service = self::getContainer()->get(WithdrawalRequestService::class);
-        $withdrawal = $service->createOrGetExisting(Uuid::v4()->toRfc4122(), 'fake', 'USDT', null, '12.50', 'TDest', null)['request'];
-
-        self::assertSame(PaymentRequestStatus::SUBMITTED, $withdrawal->getStatus());
-        self::assertCount(1, $withdrawal->getPayments());
-        $payment = $withdrawal->getLeadPayment();
-        self::assertSame(PaymentStatus::PENDING, $payment->getStatus());
-        self::assertSame('12.50', $payment->getAmount());
-        self::assertNull($payment->getNetwork());
-        self::assertNotNull($payment->getPanelReference());
-
-        $service->applyPaymentUpdate($withdrawal, PaymentStatus::CONFIRMING, null, null);
-        self::assertSame(PaymentRequestStatus::PROCESSING, $withdrawal->getStatus());
-        self::assertSame([], $this->eventTypes($withdrawal));
-
-        $service->applyPaymentUpdate($withdrawal, PaymentStatus::COMPLETED, 'tx-out', null);
-        self::assertSame(PaymentRequestStatus::COMPLETED, $withdrawal->getStatus());
-        self::assertSame('tx-out', $withdrawal->getTxHash());
-        self::assertSame(['withdrawal.completed'], $this->eventTypes($withdrawal));
-
-        $service->applyPaymentUpdate($withdrawal, PaymentStatus::FAILED, null, 'late');
-        self::assertSame(PaymentRequestStatus::COMPLETED, $withdrawal->getStatus(), 'terminal requests are never reopened');
-    }
-
-    public function testCancelledWithdrawalPaymentPausesRequestAndAdminCanCloseItAsFailed(): void
-    {
-        $this->boot();
-        $service = self::getContainer()->get(WithdrawalRequestService::class);
-        $withdrawal = $service->createOrGetExisting(Uuid::v4()->toRfc4122(), 'fake', 'USDT', 'TRC20', '5', 'TDest', null)['request'];
-
-        $service->applyPaymentUpdate($withdrawal, PaymentStatus::CANCELLED, null, 'cancelled on panel');
-        self::assertSame(PaymentRequestStatus::PAUSED, $withdrawal->getStatus());
-        self::assertSame(['withdrawal.paused'], $this->eventTypes($withdrawal));
-
-        $service->failPaused($withdrawal);
-        self::assertSame(PaymentRequestStatus::FAILED, $withdrawal->getStatus());
-        self::assertSame(['withdrawal.paused', 'withdrawal.failed'], $this->eventTypes($withdrawal));
-    }
-
-    public function testRejectedWithdrawalSubmissionFailsThePaymentToo(): void
-    {
-        $this->boot();
-        self::getContainer()->get(FakePanel::class)->setNextWithdrawalException(new \App\Panel\Exception\PanelException('insufficient balance'));
-        $withdrawal = self::getContainer()->get(WithdrawalRequestService::class)
-            ->createOrGetExisting(Uuid::v4()->toRfc4122(), 'fake', 'USDT', 'TRC20', '5', 'TDest', null)['request'];
-
-        self::assertSame(PaymentRequestStatus::SUBMIT_FAILED, $withdrawal->getStatus());
-        self::assertSame(PaymentStatus::FAILED, $withdrawal->getLeadPayment()->getStatus());
-        self::assertSame('insufficient balance', $withdrawal->getLeadPayment()->getReason());
+        return self::getContainer()->get(WithdrawalRequestService::class)->createOrGetExisting(Uuid::v4()->toRfc4122(), 'fake', 'USDT', $network, $amount, 'TDest', null)['request'];
     }
 
     public function testResumeReturnsAPausedDepositToAwaitingPayment(): void
@@ -261,7 +212,7 @@ final class PaymentLifecycleTest extends FunctionalTestCase
         $simulator = self::getContainer()->get(\App\Panel\TestPanel\TestPanelSimulator::class);
 
         $deposit = self::getContainer()->get(DepositRequestService::class)->createOrGetExisting(Uuid::v4()->toRfc4122(), 'binance_test', 'USDT', 'TRC20', '9')['request'];
-        $simulator->transitionDeposit($deposit, PaymentRequestStatus::RECEIVED);
+        $simulator->transitionDeposit($deposit, PaymentRequestStatus::AWAITING_CONFIRMATIONS);
         self::assertSame([PaymentRequestStatus::COMPLETED, PaymentRequestStatus::PAUSED], $simulator->availableDepositTargets($deposit));
         $simulator->transitionDeposit($deposit, PaymentRequestStatus::PAUSED);
         self::assertSame(PaymentRequestStatus::PAUSED, $deposit->getStatus());
@@ -269,9 +220,10 @@ final class PaymentLifecycleTest extends FunctionalTestCase
         self::assertSame(['deposit.updated', 'deposit.paused'], $this->eventTypes($deposit));
 
         $withdrawal = self::getContainer()->get(WithdrawalRequestService::class)->createOrGetExisting(Uuid::v4()->toRfc4122(), 'binance_test', 'USDT', 'TRC20', '3', 'TDest', null)['request'];
+        self::getContainer()->get(WithdrawalRequestService::class)->createPayment($withdrawal);
         $simulator->transitionWithdrawal($withdrawal, PaymentRequestStatus::PAUSED);
         self::assertSame(PaymentRequestStatus::PAUSED, $withdrawal->getStatus());
-        self::assertSame(['withdrawal.paused'], $this->eventTypes($withdrawal));
+        self::assertSame([], $this->eventTypes($withdrawal), 'a paused withdrawal is silent');
     }
 
     public function testDepositUpdatedOnlyOnRealChangesOfThePayment(): void
@@ -292,7 +244,7 @@ final class PaymentLifecycleTest extends FunctionalTestCase
         $delivery = self::getContainer()->get(CallbackDeliveryRepository::class)->findBy(['requestId' => $deposit->getId()], ['id' => 'DESC'])[0];
         self::assertSame('confirming', $delivery->getPayload()['payment']['status']);
         self::assertSame(2, $delivery->getPayload()['payment']['confirmations']);
-        self::assertSame('received', $delivery->getPayload()['status']);
+        self::assertSame('awaiting_confirmations', $delivery->getPayload()['status']);
     }
 
     public function testPausedDepositExpiresAfterTimeoutAndReleasesAddress(): void
@@ -322,7 +274,8 @@ final class PaymentLifecycleTest extends FunctionalTestCase
     {
         $em = $this->boot();
         $service = self::getContainer()->get(WithdrawalRequestService::class);
-        $withdrawal = $service->createOrGetExisting(Uuid::v4()->toRfc4122(), 'fake', 'USDT', 'TRC20', '5', 'TDest', null)['request'];
+        $withdrawal = $this->withdrawal('5', 'TRC20');
+        $service->createPayment($withdrawal);
         $service->applyPaymentUpdate($withdrawal, PaymentStatus::CANCELLED, null, 'x');
         $em->getConnection()->executeStatement("UPDATE withdrawal_request SET updated_at = '2000-01-01 00:00:00'");
 
@@ -331,5 +284,38 @@ final class PaymentLifecycleTest extends FunctionalTestCase
         $em->clear();
 
         self::assertSame(PaymentRequestStatus::PAUSED, $em->getRepository(WithdrawalRequest::class)->find($withdrawal->getId())->getStatus());
+    }
+
+    public function testDepositWithMatchingAmountAndHashIsAwaitingConfirmationsAndAnnouncesConfirmations(): void
+    {
+        $this->boot();
+        $deposit = $this->createDeposit();
+        $service = self::getContainer()->get(DepositRequestService::class);
+
+        $service->applyPaymentUpdate($deposit, PaymentStatus::PENDING, '50.00000000', 2, 'tx-m', null, 12);
+        self::assertSame(PaymentRequestStatus::AWAITING_CONFIRMATIONS, $deposit->getStatus());
+
+        $service->applyPaymentUpdate($deposit, PaymentStatus::CONFIRMING, '50.00', 7, 'tx-m', null, 12);
+        self::assertSame(['deposit.updated', 'deposit.updated'], $this->eventTypes($deposit));
+
+        $delivery = self::getContainer()->get(CallbackDeliveryRepository::class)->findBy(['requestId' => $deposit->getId()], ['id' => 'DESC'])[0];
+        $payload = $delivery->getPayload();
+        self::assertSame('awaiting_confirmations', $payload['status']);
+        self::assertSame('tx-m', $payload['tx_hash']);
+        self::assertSame(7, $payload['confirmations']);
+        self::assertSame(12, $payload['required_confirmations']);
+        self::assertSame(12, $payload['payment']['required_confirmations']);
+    }
+
+    public function testDepositWithDifferentAmountStaysReceivedButIsStillAnnounced(): void
+    {
+        $this->boot();
+        $deposit = $this->createDeposit();
+        $service = self::getContainer()->get(DepositRequestService::class);
+
+        $service->applyPaymentUpdate($deposit, PaymentStatus::CONFIRMING, '49.00', 1, 'tx-short', null, 12);
+
+        self::assertSame(PaymentRequestStatus::RECEIVED, $deposit->getStatus());
+        self::assertSame(['deposit.updated'], $this->eventTypes($deposit));
     }
 }

@@ -56,18 +56,19 @@ final class PaymentCrudController extends AbstractCrudController
 
     public function configureFields(string $pageName): iterable
     {
+        yield TextField::new('id', 'ID платежа (gateway)')->onlyOnDetail()->setTemplatePath('admin/field/copyable.html.twig');
         yield ChoiceField::new('type', 'Тип')->setChoices([
             PaymentRequestType::DEPOSIT->label() => PaymentRequestType::DEPOSIT,
             PaymentRequestType::WITHDRAWAL->label() => PaymentRequestType::WITHDRAWAL,
         ]);
-        yield AssociationField::new('depositRequest', 'Заявка на пополнение')->setTemplatePath('admin/field/association_link.html.twig');
-        yield AssociationField::new('withdrawalRequest', 'Заявка на вывод')->setTemplatePath('admin/field/association_link.html.twig');
+        yield TextField::new('request', 'Заявка (UUID Okean)')->setVirtual(true)->setTemplatePath('admin/field/payment_request.html.twig');
         yield AssociationField::new('panel', 'Панель');
         yield TextField::new('amount', 'Сумма');
         yield TextField::new('currency', 'Валюта');
         yield TextField::new('network', 'Сеть');
         yield ChoiceField::new('status', 'Статус')->setChoices(self::statusChoices())->renderAsBadges(self::statusBadgeTypes());
         yield IntegerField::new('confirmations', 'Подтверждения')->hideOnIndex();
+        yield IntegerField::new('requiredConfirmations', 'Требуется подтверждений')->hideOnIndex();
         yield TextField::new('panelReference', 'Референс панели')->hideOnIndex()->setTemplatePath('admin/field/copyable.html.twig');
         yield TextField::new('txHash', 'Хеш транзакции')->hideOnIndex()->setTemplatePath('admin/field/copyable.html.twig');
         yield TextField::new('reason', 'Причина ошибки/отмены')->hideOnIndex();

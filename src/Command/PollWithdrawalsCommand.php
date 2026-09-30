@@ -28,7 +28,7 @@ use Symfony\Component\Lock\LockFactory;
  */
 #[AsCommand(
     name: 'app:payment-gateway:poll-withdrawals',
-    description: 'Polls a panel for withdrawal confirmation against SUBMITTED/PROCESSING requests.',
+    description: 'Polls a panel for withdrawal confirmation against SUBMITTED/PROCESSING/AWAITING_CONFIRMATIONS requests.',
 )]
 class PollWithdrawalsCommand extends Command
 {
@@ -108,7 +108,7 @@ class PollWithdrawalsCommand extends Command
             foreach ($driver->checkWithdrawals($panel, $activeRequests) as $update) {
                 foreach ($byClientId as $request) {
                     if ($request->getPanelWithdrawalReference() === $update->panelWithdrawalReference) {
-                        $this->withdrawalRequestService->applyPaymentUpdate($request, $update->status, $update->txHash, $update->failureReason);
+                        $this->withdrawalRequestService->applyPaymentUpdate($request, $update->status, $update->txHash, $update->failureReason, $update->observedAmount, $update->confirmations, $update->requiredConfirmations);
                         break;
                     }
                 }

@@ -4,7 +4,8 @@
     <ul class="pg-link-list">
         {% for payment in field.value %}
             <li>
-                <a href="{{ ea_url().setController('App\\Controller\\Admin\\PaymentCrudController').setAction('detail').setEntityId(payment.id) }}">{{ payment }}</a>
+                <a href="{{ ea_url().setController('App\\Controller\\Admin\\PaymentCrudController').setAction('detail').setEntityId(payment.id) }}" title="{{ payment.id }}">{{ payment.id|slice(0, 8) }}…</a>
+                <span>{{ payment }}</span>
                 <span class="badge badge-secondary">{{ payment.status.label }}</span>
             </li>
         {% endfor %}

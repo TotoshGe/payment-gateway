@@ -8,12 +8,11 @@ use App\Entity\WithdrawalRequest;
 use App\Enum\CallbackDeliveryStatus;
 use App\Enum\PaymentRequestStatus;
 use App\Enum\PaymentStatus;
-use App\Panel\TestPanel\TestPanelSimulationException;
-use App\Panel\TestPanel\TestPanelSimulator;
 use App\Panel\Dto\WithdrawalExecutionRequest;
 use App\Panel\Exception\PanelException;
 use App\Panel\PanelRegistry;
 use App\Service\CallbackDispatcher;
+use App\Service\Exception\WithdrawalPaymentException;
 use App\Service\WithdrawalRequestService;
 use Doctrine\ORM\EntityManagerInterface;
 use EasyCorp\Bundle\EasyAdminBundle\Config\Action;
@@ -25,7 +24,9 @@ use EasyCorp\Bundle\EasyAdminBundle\Field\AssociationField;
 use EasyCorp\Bundle\EasyAdminBundle\Field\ChoiceField;
 use EasyCorp\Bundle\EasyAdminBundle\Field\DateTimeField;
 use EasyCorp\Bundle\EasyAdminBundle\Field\TextField;
+use EasyCorp\Bundle\EasyAdminBundle\Router\AdminUrlGenerator;
 use Psr\Log\LoggerInterface;
+use Symfony\Component\Security\Csrf\CsrfTokenManagerInterface;
 use Symfony\Component\HttpFoundation\RedirectResponse;
 use EasyCorp\Bundle\EasyAdminBundle\Attribute\AdminRoute;
 
@@ -37,7 +38,8 @@ final class WithdrawalRequestCrudController extends AbstractCrudController
         private readonly WithdrawalRequestService $withdrawalRequestService,
         private readonly EntityManagerInterface $entityManager,
         private readonly LoggerInterface $logger,
-        private readonly TestPanelSimulator $testPanelSimulator,
+        private readonly AdminUrlGenerator $adminUrlGenerator,
+        private readonly CsrfTokenManagerInterface $csrfTokenManager,
     ) {
     }
 
@@ -56,6 +58,7 @@ final class WithdrawalRequestCrudController extends AbstractCrudController
 
     public function configureFields(string $pageName): iterable
     {
+        yield TextField::new('id', 'ID (gateway, request_id)')->onlyOnDetail()->setTemplatePath('admin/field/copyable.html.twig');
         yield TextField::new('uuid', 'UUID (Okean)')->setTemplatePath('admin/field/copyable.html.twig');
         yield AssociationField::new('panel', 'Панель');
         yield TextField::new('currency', 'Валюта');
@@ -65,7 +68,7 @@ final class WithdrawalRequestCrudController extends AbstractCrudController
         yield TextField::new('destinationAddress', 'Адрес получателя')->hideOnIndex()->setTemplatePath('admin/field/copyable.html.twig');
         yield TextField::new('txHash', 'Хеш транзакции')->hideOnIndex()->setTemplatePath('admin/field/copyable.html.twig');
         yield TextField::new('failureReason', 'Причина ошибки')->hideOnIndex();
-        yield AssociationField::new('payments', 'Платежи')->onlyOnDetail()->setTemplatePath('admin/field/payments.html.twig');
+        yield AssociationField::new('payments', 'Платежи')->setTemplatePath('admin/field/payments.html.twig');
         yield ChoiceField::new('callbackStatus', 'Статус колбэка')->setChoices(self::callbackStatusChoices())->renderAsBadges(self::callbackStatusBadgeTypes())->hideOnIndex();
         yield DateTimeField::new('createdAt', 'Создано');
         yield DateTimeField::new('updatedAt', 'Обновлено')->hideOnIndex();
@@ -87,7 +90,19 @@ final class WithdrawalRequestCrudController extends AbstractCrudController
             ->linkToCrudAction('failPaused')
             ->displayIf(static fn (WithdrawalRequest $w) => PaymentRequestStatus::PAUSED === $w->getStatus());
 
+        $createPayment = Action::new('createPayment', 'Создать платёж')
+            ->linkToUrl(fn (WithdrawalRequest $w) => $this->adminUrlGenerator
+                ->setController(self::class)
+                ->setAction('createPayment')
+                ->setEntityId($w->getId())
+                ->set('_token', $this->csrfTokenManager->getToken(self::createPaymentTokenId($w))->getValue())
+                ->generateUrl())
+            ->renderAsForm()
+            ->displayIf(static fn (WithdrawalRequest $w) => PaymentRequestStatus::AWAITING_PAYOUT === $w->getStatus() && $w->getPayments()->isEmpty());
+
         $actions = $actions
+            ->add(Crud::PAGE_INDEX, $createPayment)
+            ->add(Crud::PAGE_DETAIL, $createPayment)
             ->add(Crud::PAGE_INDEX, $failPaused)
             ->add(Crud::PAGE_DETAIL, $failPaused)
             ->add(Crud::PAGE_INDEX, $retry)
@@ -95,46 +110,39 @@ final class WithdrawalRequestCrudController extends AbstractCrudController
             ->add(Crud::PAGE_INDEX, $resendCallback)
             ->add(Crud::PAGE_DETAIL, $resendCallback);
 
-        $testActions = [
-            'testProcessing' => ['Тестовая панель: в обработке', PaymentRequestStatus::PROCESSING],
-            'testConfirm' => ['Тестовая панель: подтвердить вывод', PaymentRequestStatus::COMPLETED],
-            'testFail' => ['Тестовая панель: ошибка', PaymentRequestStatus::FAILED],
-            'testCancel' => ['Тестовая панель: отменить платёж', PaymentRequestStatus::PAUSED],
-        ];
-        foreach ($testActions as $method => [$label, $target]) {
-            $action = Action::new($method, $label)
-                ->linkToCrudAction($method)
-                ->renderAsForm()
-                ->displayIf(fn (WithdrawalRequest $w) => \in_array($target, $this->testPanelSimulator->availableWithdrawalTargets($w), true));
-
-            $actions = $actions->add(Crud::PAGE_INDEX, $action)->add(Crud::PAGE_DETAIL, $action);
-        }
-
         return $actions;
     }
 
-    #[AdminRoute(path: '/{entityId}/test-processing', name: '_test_processing')]
-    public function testProcessing(AdminContext $context): RedirectResponse
+    #[AdminRoute(path: '/{entityId}/create-payment', name: '_create_payment', options: ['methods' => ['POST']])]
+    public function createPayment(AdminContext $context): RedirectResponse
     {
-        return $this->simulate($context, PaymentRequestStatus::PROCESSING);
+        /** @var WithdrawalRequest $withdrawalRequest */
+        $withdrawalRequest = $context->getEntity()->getInstance();
+        $back = $context->getRequest()->headers->get('referer') ?? '/admin';
+
+        if (!$this->isCsrfTokenValid(self::createPaymentTokenId($withdrawalRequest), (string) $context->getRequest()->query->get('_token'))) {
+            $this->addFlash('danger', 'Недействительный CSRF-токен, платёж не создан.');
+
+            return $this->redirect($back);
+        }
+
+        try {
+            $payment = $this->withdrawalRequestService->createPayment($withdrawalRequest);
+            if (PaymentStatus::FAILED === $payment->getStatus()) {
+                $this->addFlash('warning', sprintf('Платёж создан, но панель вернула ошибку: %s. Заявка приостановлена.', $payment->getReason()));
+            } else {
+                $this->addFlash('success', 'Платёж создан, вывод отправлен на панель.');
+            }
+        } catch (WithdrawalPaymentException $exception) {
+            $this->addFlash('danger', $exception->getMessage());
+        }
+
+        return $this->redirect($back);
     }
 
-    #[AdminRoute(path: '/{entityId}/test-confirm', name: '_test_confirm')]
-    public function testConfirm(AdminContext $context): RedirectResponse
+    public static function createPaymentTokenId(WithdrawalRequest $withdrawalRequest): string
     {
-        return $this->simulate($context, PaymentRequestStatus::COMPLETED);
-    }
-
-    #[AdminRoute(path: '/{entityId}/test-fail', name: '_test_fail')]
-    public function testFail(AdminContext $context): RedirectResponse
-    {
-        return $this->simulate($context, PaymentRequestStatus::FAILED);
-    }
-
-    #[AdminRoute(path: '/{entityId}/test-cancel', name: '_test_cancel')]
-    public function testCancel(AdminContext $context): RedirectResponse
-    {
-        return $this->simulate($context, PaymentRequestStatus::PAUSED);
+        return 'create-payment-'.$withdrawalRequest->getId();
     }
 
     #[AdminRoute(path: '/{entityId}/fail-paused', name: '_fail_paused')]
@@ -143,21 +151,6 @@ final class WithdrawalRequestCrudController extends AbstractCrudController
         /** @var WithdrawalRequest $withdrawalRequest */
         $withdrawalRequest = $context->getEntity()->getInstance();
         $this->withdrawalRequestService->failPaused($withdrawalRequest);
-
-        return $this->redirect($context->getRequest()->headers->get('referer') ?? '/admin');
-    }
-
-    private function simulate(AdminContext $context, PaymentRequestStatus $target): RedirectResponse
-    {
-        /** @var WithdrawalRequest $withdrawalRequest */
-        $withdrawalRequest = $context->getEntity()->getInstance();
-
-        try {
-            $this->testPanelSimulator->transitionWithdrawal($withdrawalRequest, $target);
-            $this->addFlash('success', sprintf('[ТЕСТ-ПАНЕЛЬ] Заявка на вывод переведена в статус «%s» (вручную; ничего не отправлено; по терминальным статусам Okean получает колбэк).', $target->label()));
-        } catch (TestPanelSimulationException $exception) {
-            $this->addFlash('danger', '[ТЕСТ-ПАНЕЛЬ] '.$exception->getMessage());
-        }
 
         return $this->redirect($context->getRequest()->headers->get('referer') ?? '/admin');
     }

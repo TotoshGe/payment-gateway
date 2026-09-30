@@ -97,4 +97,28 @@ final class PollDepositsCommandTest extends FunctionalTestCase
         $reloaded = $depositRequestRepository->find($depositRequest->getId());
         self::assertSame(PaymentRequestStatus::EXPIRED, $reloaded->getStatus());
     }
+
+    public function testExpiredDepositIsNoLongerPolledAndSendsExpiredCallback(): void
+    {
+        self::bootKernel();
+        $container = self::getContainer();
+        $em = $container->get(EntityManagerInterface::class);
+        if (null === $em->getRepository(Panel::class)->findOneBy(['code' => 'fake'])) {
+            $em->persist(new Panel('fake', 'Fake panel'));
+            $em->flush();
+        }
+
+        $request = $container->get(DepositRequestService::class)->createOrGetExisting('poll-stop-'.uniqid(), 'fake', 'USDT', 'TRC20', '10.00')['request'];
+        $em->getConnection()->executeStatement('UPDATE deposit_request SET expires_at = ? WHERE id = ?', [(new \DateTimeImmutable('-1 hour'))->format('Y-m-d H:i:s'), $request->getId()->toBinary()]);
+        $em->clear();
+
+        $tester = new CommandTester((new Application(self::$kernel))->find('app:payment-gateway:poll-deposits'));
+        $tester->execute(['panel-code' => 'fake', '--once' => true]);
+
+        $reloaded = $container->get(\App\Repository\DepositRequestRepository::class)->find($request->getId());
+        self::assertSame(PaymentRequestStatus::EXPIRED, $reloaded->getStatus());
+        self::assertCount(0, $reloaded->getPayments());
+        self::assertSame(['deposit.expired'], array_map(static fn ($d) => $d->getEventType(), $container->get(CallbackDeliveryRepository::class)->findBy(['requestId' => $reloaded->getId()])));
+        self::assertNotContains($reloaded->getId()->toRfc4122(), array_map(static fn ($r) => $r->getId()->toRfc4122(), $container->get(\App\Repository\DepositRequestRepository::class)->findPollableForPanel($reloaded->getPanel())), 'the wallet is no longer watched for it');
+    }
 }

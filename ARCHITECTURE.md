@@ -11,6 +11,17 @@ EasyAdmin, тесты). Документ ниже — исходная архи�
 
 ## Обновления по факту реализации
 
+00. **Вывод по кнопке оператора, «ожидает подтверждений», пауза без колбэка**
+    (последнее изменение; миграция `Version20260930100000`). Заявка на вывод
+    создаётся **без платежа** в статусе `awaiting_payout` («Ожидание выплаты»);
+    платёж и запрос на панель создаёт оператор кнопкой «Создать платёж» (§1.6,
+    §5). Новый статус заявки `awaiting_confirmations` («Ожидает подтверждений в
+    сети») для обоих потоков; новый колбэк `withdrawal.confirming`; в payload
+    добавлены `confirmations` / `required_confirmations` (и `tx_hash` у
+    депозитов); пауза вывода **больше не шлёт** `withdrawal.paused`; платёж
+    вывода в `failed` теперь паузирует заявку, а не закрывает её `failed`
+    (§3.4). Кнопки «Тестовая панель: ...» из админки удалены (§2.1).
+
 0. **Платежи, `paused`, `uuid`** (последнее изменение): введена сущность
    `Payment` и статус заявки `paused` (§1.6), `external_reference` /
    `externalReference` переименован в `uuid` — голый UUID Okean без префикса
@@ -159,8 +170,13 @@ NEW ──(вызов executeWithdrawal успешен, панель приня�
 ```
 
 Актуальный набор статусов заявки (`PaymentRequestStatus`): `new`,
-`awaiting_payment`, `submitted`, `processing`, `received`, **`paused`**,
-`completed`, `failed`, `expired`, `submit_failed`. Терминальные:
+`awaiting_payment`, **`awaiting_payout`**, **`awaiting_confirmations`**,
+`submitted`, `processing`, `received`, `paused`,
+`completed`, `failed`, `expired`, `submit_failed`.
+`awaiting_payout` — только вывод: создан, платежа нет, ждёт оператора.
+`awaiting_confirmations` — оба потока: перевод виден в сети (есть хэш), сумма
+совпадает с заявкой, подтверждений ещё недостаточно. `received` (депозит) — теперь
+только «перевод замечен, но сумма не совпадает / хэша ещё нет». Терминальные:
 `completed`, `failed`, `expired`, `submit_failed` — из них заявка руками не
 возвращается (кроме явного admin override, см. §7). `received` и `paused` —
 **не** терминальные (в схемах выше `RECEIVED` был показан как терминальный —
@@ -201,32 +217,55 @@ NEW ──(вызов executeWithdrawal успешен, панель приня�
 к заявке (сумма/валюта/сеть — фактическая сумма, валюта и сеть заявки), дальше
 обновляет статус платежа и выводит статус заявки.
 
-**Вывод.** Платёж создаётся вместе с заявкой (`pending`, сумма/валюта/сеть
-из заявки). `panelReference` появляется, когда панель приняла вывод.
+**Вывод.** Заявка создаётся **без платежа** и без обращения к панели
+(`awaiting_payout`). Оператор в админке нажимает «Создать платёж»
+(POST + CSRF-токен): `WithdrawalRequestService::createPayment()` под блокировкой
+строки создаёт платёж (`pending`, сумма/валюта/сеть из заявки) и только потом
+вызывает панель — повторный клик или гонка не отправят деньги дважды. Действие
+доступно только заявке в `awaiting_payout` без платежей и с включённой панелью.
+Реальная панель (Binance): уходит `withdraw/apply`; тестовая панель: запрос
+никуда не идёт, ответ имитируется (референс `TEST-WD-...`). Любая ошибка при
+создании (отказ панели, сеть, исключение) **не отменяет платёж**: он
+сохраняется в статусе `failed`, причина пишется в `payment.reason`, заявка
+уходит в `paused`, колбэк в Okean не отправляется. `panelReference` появляется,
+когда панель приняла вывод.
 
 Маппинг статуса платежа -> статус заявки:
 
 | Платёж | Заявка-депозит | Заявка-вывод |
 |---|---|---|
-| (платежа нет) | `awaiting_payment` | `new` (до ответа панели) |
-| `pending` | `received` (перевод замечен) | `submitted` |
-| `confirming` | `received` (ждёт подтверждений сети) | `processing` |
-| `completed` | `completed` (терминальный) | `completed` (терминальный) |
-| `failed` | `paused` | `failed` (терминальный) |
-| `cancelled` | **`paused`** | **`paused`** |
-| отказ панели при отправке | — | `submit_failed` (платёж `failed`) |
+| (платежа нет) | `awaiting_payment` | `awaiting_payout` |
+| `pending` | `awaiting_confirmations` (есть хэш и сумма == ожидаемой), иначе `received` | `submitted` |
+| `confirming` | как `pending` | `awaiting_confirmations` (есть `tx_hash` и сумма платежа == сумме заявки), иначе `processing` |
+| `completed` | `completed` (терминальный) | `completed` (терминальный), если сумма платежа == сумме заявки; иначе заявка остаётся/возвращается в `awaiting_payout`, колбэка нет |
+| `failed` | `paused` | **`paused`** (колбэка нет) |
+| `cancelled` | `paused` | `paused` (колбэка нет) |
+| отказ панели при создании платежа | — | платёж `failed` + `reason`, заявка `paused`, колбэка нет |
+
+Сумма сравнивается через bcmath (`bccomp`, 18 знаков), не строкой.
+`SUBMIT_FAILED` для вывода больше не порождается (легаси-строки остаются).
+Платёж `failed` — это и есть «платёж со статусом ошибки» (отдельного `error`
+не заводили, чтобы не плодить синонимы).
 
 Binance -> платёж. Депозит: `0`/`8` -> `pending`, `6` -> `confirming`,
 `1` -> `completed`, `2` (rejected)/`7` (wrong deposit) -> `cancelled`. Вывод:
 `6` -> `completed`, `1` (cancelled) -> `cancelled`, `3`/`5` -> `failed`,
-остальные -> `confirming`. `DepositStatusUpdate`/`WithdrawalStatusUpdate`
+остальные -> `confirming`.
+
+Подтверждения из Binance. Депозит (`deposit/hisrec`): `confirmTimes` = `"3/12"`
+-> `confirmations = 3`, `required_confirmations = 12`; `txId` -> хэш. Вывод
+(`withdraw/history`): `txId` -> хэш, `amount` -> сумма для сверки, `confirmNo` ->
+текущее число подтверждений; **требуемое число подтверждений для вывода Binance
+в истории не отдаёт**, поэтому `required_confirmations` у Binance-вывода
+`null` (тестовая панель отдаёт 12). `DepositStatusUpdate`/`WithdrawalStatusUpdate`
 (результат `PanelInterface::checkDeposits()/checkWithdrawals()`) несут именно
 `PaymentStatus`; статус заявки из него выводит только оркестрирующий сервис
 (`PaymentRequestSynchronizer`).
 
 Правила при нескольких платежах у депозита: любой `completed` закрывает
 заявку (`receivedAmount` = сумма этого платежа); иначе любой живой
-(`pending`/`confirming`) держит `received`; если все платежи мертвы
+(`pending`/`confirming`) держит `awaiting_confirmations` (или `received`, если
+сумма не совпадает/нет хэша); если все платежи мертвы
 (`failed`/`cancelled`) — `paused`. Финальный платёж (`completed`/`failed`/
 `cancelled`) не переоткрывается; терминальную заявку поздние наблюдения не
 меняют. Повторное наблюдение того же платежа без изменений статус заявки не
@@ -248,12 +287,22 @@ Binance -> платёж. Депозит: `0`/`8` -> `pending`, `6` -> `confirmin
 (только лог). Поэтому таймаут стоит держать заметно длиннее ожидаемого срока
 разбора паузы.
 
-`paused` — не терминальный: адрес пула остаётся занятым (деньги могут ещё
-прийти), Okean получает колбэк `deposit.paused`/`withdrawal.paused`. Выход из
+`paused` — не терминальный. Депозит: адрес пула остаётся занятым (деньги могут
+ещё прийти), Okean получает колбэк `deposit.paused`. Вывод: пауза **молчаливая**,
+`withdrawal.paused` не отправляется (решение продукт-овнера); Okean узнаёт о
+судьбе вывода только из `withdrawal.completed` / `withdrawal.failed`. Выход из
 `paused`: депозит — приходит новый платёж (пересчёт статуса) либо админ
 «Возобновить ожидание» (`awaiting_payment`); вывод — админ «Закрыть как
 ошибку» (`failed`, колбэк `withdrawal.failed`); автоповтор вывода не делается
-(риск двойной отправки).
+(риск двойной отправки: платёж мог упасть по таймауту уже после того, как
+панель приняла вывод — прежде чем закрывать как ошибку, проверьте вывод на
+бирже по `withdrawOrderId` = `clientWithdrawalId`).
+
+**Истечение депозита.** Пока платежа нет, заявка (`awaiting_payment`) опрашивается
+поллером; по `expiresAt` без обнаруженного перевода она переходит в `expired`,
+адрес возвращается в пул, Okean получает `deposit.expired`, заявка выпадает из
+выборки поллера (кошелёк больше не проверяется). Заявка с уже виденным
+переводом (`received`/`awaiting_confirmations`) по времени не истекает.
 
 
 ### 1.5 CallbackDelivery
@@ -382,16 +431,19 @@ Okean не знает про панели: выбор делает gateway (`Pan
   тот же адрес (идемпотентность в сервисе, как у Binance).
 - **Поступление и исполнение вывода не определяются поллингом**:
   `checkDeposits()`/`checkWithdrawals()` пусты. Оператор двигает статусы
-  вручную (`TestPanelSimulator`): кнопки «Test Panel: ...» в админке
-  gateway (видны только у заявок этой панели) или
+  вручную (`TestPanelSimulator`): **только из консоли**, кнопки
+  «Тестовая панель: ...» из админки удалены:
   `bin/console app:test-panel:confirm <id|uuid> --status=completed [--amount=..]` (`id` — ключ gateway, `uuid` — Okean; сначала ищется по `id`)
   (старое имя `app:binance-test:confirm` — алиас). Симулятор вызывает те же
   `applyStatusUpdate()`/`expire()`, что и реальные поллеры, поэтому колбек
   уходит тем же путём. Доступные переходы — те, которые могут дать поллеры
   Binance: депозит `awaiting_payment -> received|completed|expired`,
-  `received -> completed` (у Binance депозит не бывает `failed`); вывод
-  `submitted -> processing|completed|failed`, `processing -> completed|failed`.
-- Вывод ничего не отправляет: ответ панели — `submitted` с фейковым
+  `awaiting_confirmations -> completed` (у Binance депозит не бывает `failed`);
+  вывод (после «Создать платёж») `submitted -> processing|awaiting_confirmations|completed|failed`,
+  `processing -> awaiting_confirmations|completed|failed`; `failed` паузирует заявку.
+  `--status` принимает `awaiting_confirmations|processing|completed|failed|paused|expired`
+  (`received` — алиас `awaiting_confirmations`).
+- Вывод ничего не отправляет (по кнопке «Создать платёж» тоже): ответ панели — `submitted` с фейковым
   референсом `TEST-WD-...`, `tx_hash` при завершении — `test-<hash>`.
 
 Подключение — как у любой панели: строка панели в админке (`Panels`) с кодом
@@ -490,20 +542,27 @@ tx_hash}`.
 }
 ```
 
-Ответ `201`:
+Ответ `201` (заявка ждёт оператора; платежей нет, панель не вызывалась):
 
 ```json
 {
   "id": "9c2e...",
   "uuid": "7c9d3c5a-2b1e-4f6a-8d90-3e4b5a6c7d22",
-  "status": "submitted",
+  "status": "awaiting_payout",
   "panel": "binance",
-  "payments": [{"id": "e1f0...", "status": "pending", "amount": "148.50", "currency": "USDT", "network": "TRC20", "confirmations": null, "tx_hash": null}],
+  "payments": [],
   "currency": "USDT",
   "network": "TRC20",
-  "amount": "148.50"
+  "amount": "148.50",
+  "destination_address": "TAbc...",
+  "tx_hash": null
 }
 ```
+
+Ответ `502` при создании вывода больше не возвращается (панель на этом шаге не
+вызывается); ошибки панели видны как платёж `failed` + пауза заявки.
+Элемент `payments` теперь содержит и `required_confirmations`:
+`{id, status, amount, currency, network, confirmations, required_confirmations, tx_hash}`.
 
 Та же идемпотентность по `uuid`, тот же смысл — повтор не
 приводит к повторной отправке средств (см. `clientWithdrawalId` в §1.3).
@@ -540,20 +599,72 @@ tx_hash}`.
 ```
 
 `type` ∈ `deposit.updated`, `deposit.received`, `deposit.expired`, `deposit.failed`,
-`deposit.paused`, `withdrawal.completed`, `withdrawal.failed`,
-`withdrawal.paused`. Колбэки уходят при переходе заявки в терминальный статус
-и при переходе в `paused`. Кроме того, **`deposit.updated`** (нетерминальный,
-только депозиты) уходит, когда на адрес заявки появился платёж и при каждом
-изменении его статуса или числа подтверждений (`payment.status`,
-`payment.confirmations`; `status` заявки при этом `received`); при
-неизменном состоянии дублей нет. Для `withdrawal.*` промежуточных колбэков нет
-(состояние видно через `GET`). Каждое событие имеет свой `event_id`. `request_id` — id заявки в gateway, `uuid` — UUID
-Okean (ключ для сопоставления на стороне Okean); поле `external_reference`
-удалено. `payment` — ведущий платёж заявки (может быть `null`; `network`
-внутри тоже допустим `null`). У `withdrawal.*` есть также `tx_hash`.
-`paused` — не финал: позже придёт ещё колбэк (`*.received`/`*.completed`/
-`withdrawal.failed`) либо ручное решение оператора. Для `deposit.received`
-`status` в теле — `completed`.
+`deposit.paused`, `withdrawal.confirming`, `withdrawal.completed`, `withdrawal.failed`.
+(`withdrawal.paused` **удалён**: пауза вывода — молчаливая. Неизвестные типы Okean
+подтверждает `200 ignored`.)
+
+- `deposit.updated` (нетерминальный) — на адрес пришёл платёж и при каждом
+  изменении его статуса / суммы / числа подтверждений; `status` заявки
+  `awaiting_confirmations` (сумма и хэш в порядке) или `received` (сумма не
+  совпала); при неизменном состоянии дублей нет.
+- `withdrawal.confirming` (нетерминальный, новый) — вывод отправлен, перевод виден
+  в сети (есть `tx_hash`), сумма совпала, но подтверждений ещё мало; `status` =
+  `awaiting_confirmations`. **Повторяется** при каждом росте `confirmations`
+  (у каждого повтора свой `event_id`). Финал — `withdrawal.completed`.
+- `withdrawal.completed` — платёж `completed`, сумма платежа == сумме заявки.
+- `withdrawal.failed` — теперь **только** когда оператор закрыл приостановленную
+  заявку («Закрыть как ошибку»); сам сбой платежа его не шлёт, а паузит заявку.
+- Пауза вывода (платёж отменён / `failed` / ошибка создания) — колбэка нет.
+
+Каждое событие имеет свой `event_id`. `request_id` — id заявки в gateway, `uuid` —
+UUID Okean (ключ для сопоставления на стороне Okean). `payment` — ведущий платёж
+заявки (может быть `null`; `network` внутри допустим `null`). Поля верхнего уровня
+`tx_hash`, `confirmations`, `required_confirmations` берутся из ведущего платежа
+(теперь есть и у депозитов; любое может быть `null` — например, Binance не отдаёт
+требуемое число подтверждений для вывода). Для `deposit.received` `status` в теле —
+`completed`.
+
+Пример `withdrawal.confirming` (повторяется по мере роста подтверждений):
+
+```json
+{
+  "event_id": "0c1d...-uuid",
+  "type": "withdrawal.confirming",
+  "request_id": "9c2e...",
+  "uuid": "7c9d3c5a-2b1e-4f6a-8d90-3e4b5a6c7d22",
+  "status": "awaiting_confirmations",
+  "panel": "binance",
+  "currency": "USDT",
+  "network": "TRC20",
+  "amount": "148.50",
+  "tx_hash": "0xabc...",
+  "confirmations": 3,
+  "required_confirmations": 12,
+  "payment": {"id": "e1f0...", "status": "confirming", "amount": "148.50", "currency": "USDT", "network": "TRC20", "confirmations": 3, "required_confirmations": 12, "tx_hash": "0xabc..."},
+  "occurred_at": "2026-09-30T09:15:02Z"
+}
+```
+
+Пример `deposit.updated` с подтверждениями:
+
+```json
+{
+  "event_id": "7a4b...-uuid",
+  "type": "deposit.updated",
+  "request_id": "b3f1...",
+  "uuid": "0b0f1b3e-6f4d-4d7e-9a53-1f0a5c2e7d11",
+  "status": "awaiting_confirmations",
+  "panel": "binance",
+  "currency": "USDT",
+  "network": "TRC20",
+  "amount": "150.00",
+  "tx_hash": "0xdef...",
+  "confirmations": 3,
+  "required_confirmations": 12,
+  "payment": {"id": "e1f0...", "status": "confirming", "amount": "150.00", "currency": "USDT", "network": "TRC20", "confirmations": 3, "required_confirmations": 12, "tx_hash": "0xdef..."},
+  "occurred_at": "2026-09-30T09:12:40Z"
+}
+```
 
 Заголовки:
 
@@ -635,23 +746,27 @@ loop (каждые 15с, symfony/lock не даёт второй копии кр
 
 ## 5. Вывод — исполнение и подтверждение
 
-1. `WithdrawalRequestService` создаёт `WithdrawalRequest(status=NEW)`,
-   генерирует `clientWithdrawalId` (uuid), вызывает
-   `panel.executeWithdrawal()`.
-2. `BinancePanel::executeWithdrawal()` дергает `POST
+1. `WithdrawalRequestService::createOrGetExisting()` создаёт
+   `WithdrawalRequest(status=awaiting_payout)`, генерирует `clientWithdrawalId`
+   (uuid). Панель **не вызывается**, платежа нет.
+2. Оператор нажимает «Создать платёж» (`createPayment()`): создаётся `Payment`
+   (`pending`), затем `panel.executeWithdrawal()`.
+   `BinancePanel::executeWithdrawal()` дергает `POST
    /sapi/v1/capital/withdraw/apply`, **передавая `clientWithdrawalId` как
    `withdrawOrderId`** — это ключевой момент идемпотентности: если вызов
    к Binance прошёл, но ответ потерялся (таймаут на нашей стороне), повторный
    вызов с тем же `withdrawOrderId` не создаст вторую реальную выплату —
    Binance его дедуплицирует на своей стороне. Без этого поля повтор после
    сетевого сбоя рискует задвоить реальный перевод денег.
-3. Статус переходит в `SUBMITTED`, сохраняется `panelWithdrawalReference`
-   (id, который вернул Binance).
+3. Успех: заявка `submitted`, сохраняется `panelWithdrawalReference` (id Binance).
+   Ошибка: платёж `failed` с `reason`, заявка `paused`, без колбэка.
 4. Withdrawal-поллер батчем спрашивает `GET
    /sapi/v1/capital/withdraw/history`, сопоставляет по
    `panelWithdrawalReference`/`withdrawOrderId`, обновляет статус
-   (`COMPLETED`/`FAILED`) и `txHash`.
-5. Колбек в Okean по тому же механизму, что и депозит (§3.4, §1.5).
+   платёж (сумма, `txId`, `confirmNo`), заявка выводится из платежа по таблице §1.6.
+   В опрос входят заявки `submitted`, `processing`, `awaiting_confirmations`.
+5. Колбеки: `withdrawal.confirming` (растущие подтверждения) и `withdrawal.completed`
+   (§3.4, §1.5); пауза колбэка не шлёт.
 
 ---
 
@@ -695,7 +810,14 @@ API-ключи Binance для вывода — не read-only, компроме�
   *"перепроверить сейчас"* (форс-тик поллера для одной заявки),
   *"отметить как expired/failed вручную"* (для явно зависших кейсов),
   *"переслать колбек"*.
-- **WithdrawalRequestCrudController** — аналогично; ручной *"retry"*
+- В списках и карточках заявок и платежей показан связанный ID со ссылкой:
+  заявка -> её платежи (короткий id платежа + сумма + статус), платёж -> заявка
+  (UUID Okean + короткий gateway id). На карточках виден полный gateway `id`
+  (`request_id` в колбэках).
+- **WithdrawalRequestCrudController**: кнопка *«Создать платёж»* (только
+  `awaiting_payout` без платежей; POST + CSRF-токен `create-payment-<id>` в
+  query формы). Кнопок «Тестовая панель: ...» нет ни у пополнений, ни у выводов.
+  Ручной *"retry"* (только легаси-строки `submit_failed`)
   доступен только через тот же `clientWithdrawalId` (см. §5) — не создаёт
   новый вывод, а повторяет вызов с тем же идемпотентным ключом, чтобы не
   задвоить реальную отправку денег.

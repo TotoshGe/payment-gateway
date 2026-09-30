@@ -47,9 +47,10 @@ enum PaymentStatus: string
     }
 
     /**
-     * Only meaningful for a withdrawal payment. FAILED stays FAILED (Okean
-     * already treats withdrawal.failed as "freeze for manual review");
-     * CANCELLED pauses.
+     * Only meaningful for a withdrawal payment; the base mapping.
+     * PaymentRequestSynchronizer refines CONFIRMING/COMPLETED by tx hash and
+     * amount. FAILED and CANCELLED both pause the request (no callback;
+     * withdrawal.failed is sent only when an operator closes the paused request).
      */
     public function toWithdrawalRequestStatus(): PaymentRequestStatus
     {
@@ -57,8 +58,7 @@ enum PaymentStatus: string
             self::PENDING => PaymentRequestStatus::SUBMITTED,
             self::CONFIRMING => PaymentRequestStatus::PROCESSING,
             self::COMPLETED => PaymentRequestStatus::COMPLETED,
-            self::FAILED => PaymentRequestStatus::FAILED,
-            self::CANCELLED => PaymentRequestStatus::PAUSED,
+            self::FAILED, self::CANCELLED => PaymentRequestStatus::PAUSED,
         };
     }
 

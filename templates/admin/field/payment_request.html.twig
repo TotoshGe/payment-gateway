@@ -1,0 +1,9 @@
+{% set payment = entity.instance %}
+{% set related = payment.depositRequest ?? payment.withdrawalRequest %}
+{% if related is null %}
+    <span class="pg-muted">—</span>
+{% else %}
+    {% set controller = payment.depositRequest is not null ? 'App\\Controller\\Admin\\DepositRequestCrudController' : 'App\\Controller\\Admin\\WithdrawalRequestCrudController' %}
+    <a href="{{ ea_url().setController(controller).setAction('detail').setEntityId(related.id) }}" title="{{ related.id }}">{{ related.uuid }}</a>
+    <span class="pg-muted">{{ related.id|slice(0, 8) }}…</span>
+{% endif %}

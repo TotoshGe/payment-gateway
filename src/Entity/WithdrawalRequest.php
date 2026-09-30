@@ -62,7 +62,7 @@ class WithdrawalRequest implements PaymentRequestInterface
     #[ORM\Column(length: 128, nullable: true)]
     private ?string $txHash = null;
 
-    #[ORM\Column(length: 16, enumType: PaymentRequestStatus::class)]
+    #[ORM\Column(length: 32, enumType: PaymentRequestStatus::class)]
     private PaymentRequestStatus $status;
 
     #[ORM\Column(type: Types::TEXT, nullable: true)]
@@ -104,7 +104,7 @@ class WithdrawalRequest implements PaymentRequestInterface
         $this->destinationAddress = $destinationAddress;
         $this->destinationTag = $destinationTag;
         $this->clientWithdrawalId = $clientWithdrawalId;
-        $this->status = PaymentRequestStatus::NEW;
+        $this->status = PaymentRequestStatus::AWAITING_PAYOUT;
         $this->callbackStatus = CallbackDeliveryStatus::PENDING;
         $this->payments = new ArrayCollection();
         $this->createdAt = new \DateTimeImmutable();
@@ -283,6 +283,8 @@ class WithdrawalRequest implements PaymentRequestInterface
             'network' => $this->network,
             'amount' => $this->amount,
             'tx_hash' => $this->txHash,
+            'confirmations' => $this->getLeadPayment()?->getConfirmations(),
+            'required_confirmations' => $this->getLeadPayment()?->getRequiredConfirmations(),
             'payment' => $this->getLeadPayment()?->toArray(),
         ];
     }
@@ -292,7 +294,7 @@ class WithdrawalRequest implements PaymentRequestInterface
         return match ($this->status) {
             PaymentRequestStatus::COMPLETED => 'withdrawal.completed',
             PaymentRequestStatus::FAILED, PaymentRequestStatus::SUBMIT_FAILED => 'withdrawal.failed',
-            PaymentRequestStatus::PAUSED => 'withdrawal.paused',
+            PaymentRequestStatus::AWAITING_CONFIRMATIONS => 'withdrawal.confirming',
             default => 'withdrawal.updated',
         };
     }

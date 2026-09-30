@@ -19,6 +19,7 @@ final readonly class DepositStatusUpdate
         public string $observedAmount,
         public ?int $confirmations,
         public ?string $panelDepositReference,
+        public ?int $requiredConfirmations = null,
     ) {
     }
 }

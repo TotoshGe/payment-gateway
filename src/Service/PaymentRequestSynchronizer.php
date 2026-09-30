@@ -39,7 +39,9 @@ final class PaymentRequestSynchronizer
             $status = PaymentStatus::COMPLETED->toDepositRequestStatus();
         } elseif (null !== $live) {
             $lead = $live;
-            $status = $live->getStatus()->toDepositRequestStatus();
+            $status = self::isVisibleOnChainAndMatching($live, $request->getExpectedAmount())
+                ? PaymentRequestStatus::AWAITING_CONFIRMATIONS
+                : PaymentRequestStatus::RECEIVED;
         } else {
             $lead = $payments[array_key_last($payments)];
             $status = $lead->getStatus()->toDepositRequestStatus();
@@ -60,8 +62,11 @@ final class PaymentRequestSynchronizer
     }
 
     /**
-     * A withdrawal has one payment (created with the request); the newest one
-     * wins if an operator ever adds another.
+     * A withdrawal has no payment until an operator creates one; the newest
+     * payment wins. A completed payment closes the request only when its
+     * amount equals the requested one (otherwise the request goes back to
+     * waiting for a payout); a confirming one with a tx hash and the right
+     * amount is AWAITING_CONFIRMATIONS.
      */
     public function syncWithdrawal(WithdrawalRequest $request): bool
     {
@@ -74,12 +79,28 @@ final class PaymentRequestSynchronizer
         $request->setFailureReason($lead->getReason());
 
         $status = $lead->getStatus()->toWithdrawalRequestStatus();
+        if (PaymentStatus::COMPLETED === $lead->getStatus() && !self::amountsEqual($lead->getAmount(), $request->getAmount())) {
+            $status = PaymentRequestStatus::AWAITING_PAYOUT;
+        } elseif (PaymentStatus::CONFIRMING === $lead->getStatus() && self::isVisibleOnChainAndMatching($lead, $request->getAmount())) {
+            $status = PaymentRequestStatus::AWAITING_CONFIRMATIONS;
+        }
+
         if ($request->getStatus() === $status) {
             return false;
         }
         $request->setStatus($status);
 
         return true;
+    }
+
+    private static function isVisibleOnChainAndMatching(Payment $payment, string $requestedAmount): bool
+    {
+        return null !== $payment->getTxHash() && '' !== $payment->getTxHash() && self::amountsEqual($payment->getAmount(), $requestedAmount);
+    }
+
+    private static function amountsEqual(string $a, string $b): bool
+    {
+        return 1 === preg_match('/^\d+(\.\d+)?$/', $a) && 1 === preg_match('/^\d+(\.\d+)?$/', $b) && 0 === bccomp($a, $b, 18);
     }
 
     /**

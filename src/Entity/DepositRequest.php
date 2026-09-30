@@ -56,7 +56,7 @@ class DepositRequest implements PaymentRequestInterface
     #[ORM\Column(length: 128, nullable: true)]
     private ?string $panelDepositReference = null;
 
-    #[ORM\Column(length: 16, enumType: PaymentRequestStatus::class)]
+    #[ORM\Column(length: 32, enumType: PaymentRequestStatus::class)]
     private PaymentRequestStatus $status;
 
     #[ORM\Column(type: Types::STRING, length: 64, nullable: true)]
@@ -331,6 +331,9 @@ class DepositRequest implements PaymentRequestInterface
             'currency' => $this->currency,
             'network' => $this->network,
             'amount' => $this->receivedAmount ?? $this->expectedAmount,
+            'tx_hash' => $this->getLeadPayment()?->getTxHash(),
+            'confirmations' => $this->getLeadPayment()?->getConfirmations(),
+            'required_confirmations' => $this->getLeadPayment()?->getRequiredConfirmations(),
             'payment' => $this->getLeadPayment()?->toArray(),
         ];
     }

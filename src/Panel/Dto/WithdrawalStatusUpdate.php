@@ -13,6 +13,10 @@ final readonly class WithdrawalStatusUpdate
         public PaymentStatus $status,
         public ?string $txHash,
         public ?string $failureReason,
+        /** Amount as the panel reports it; compared with the request amount before a payment may close it. */
+        public ?string $observedAmount = null,
+        public ?int $confirmations = null,
+        public ?int $requiredConfirmations = null,
     ) {
     }
 }

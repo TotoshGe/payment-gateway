@@ -18,6 +18,20 @@ enum PaymentRequestStatus: string
     /** Deposit only: address obtained from the panel, waiting for on-chain funds. */
     case AWAITING_PAYMENT = 'awaiting_payment';
 
+    /**
+     * Withdrawal only: created without a payment, waits for an operator to
+     * press "create payment" (also where a withdrawal returns to if its
+     * completed payment does not match the requested amount).
+     */
+    case AWAITING_PAYOUT = 'awaiting_payout';
+
+    /**
+     * Both flows: the on-chain transfer is visible (has a tx hash, amount
+     * matches the request) but is not confirmed yet. Payment status
+     * pending/confirming on the deposit side, confirming on the withdrawal side.
+     */
+    case AWAITING_CONFIRMATIONS = 'awaiting_confirmations';
+
     /** Withdrawal only: panel accepted the withdrawal and assigned it a reference. */
     case SUBMITTED = 'submitted';
 
@@ -25,9 +39,9 @@ enum PaymentRequestStatus: string
     case PROCESSING = 'processing';
 
     /**
-     * Deposit only, intermediate: funds observed on-chain but not yet fully
-     * credited/withdrawable on the panel (Binance deposit status 6 "credited
-     * but cannot withdraw" -- funds exist but confirmations aren't final).
+     * Deposit only, intermediate: a transfer was seen but it does not (yet)
+     * qualify for AWAITING_CONFIRMATIONS: amount differs from the request or
+     * no tx hash yet.
      */
     case RECEIVED = 'received';
 
@@ -73,6 +87,8 @@ enum PaymentRequestStatus: string
     {
         return match ($this) {
             self::NEW => 'Новая',
+            self::AWAITING_PAYOUT => 'Ожидание выплаты',
+            self::AWAITING_CONFIRMATIONS => 'Ожидает подтверждений в сети',
             self::AWAITING_PAYMENT => 'Ожидает оплаты',
             self::SUBMITTED => 'Отправлена',
             self::PROCESSING => 'В обработке',
@@ -94,8 +110,8 @@ enum PaymentRequestStatus: string
         return match ($this) {
             self::COMPLETED => 'success',
             self::FAILED, self::EXPIRED, self::SUBMIT_FAILED => 'danger',
-            self::PROCESSING, self::RECEIVED, self::PAUSED => 'warning',
-            self::AWAITING_PAYMENT, self::SUBMITTED => 'info',
+            self::PROCESSING, self::RECEIVED, self::PAUSED, self::AWAITING_CONFIRMATIONS => 'warning',
+            self::AWAITING_PAYMENT, self::AWAITING_PAYOUT, self::SUBMITTED => 'info',
             self::NEW => 'secondary',
         };
     }

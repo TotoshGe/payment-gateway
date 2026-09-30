@@ -162,6 +162,43 @@ final class BinancePanelTest extends TestCase
         self::assertSame('tx-abc', $updates[0]->panelDepositReference);
     }
 
+    public function testCheckDepositsReportsCurrentAndRequiredConfirmations(): void
+    {
+        $panel = $this->makePanel($this->makeEncryptor());
+        $request = new DepositRequest('ext-2', $panel, 'USDT', 'TRC20', '100.00', new \DateTimeImmutable('+1 hour'));
+        $request->assignWalletAddress(new PanelWalletAddress($panel, 'USDT', 'TRC20', 0, 'Tmatch'));
+
+        $httpClient = new MockHttpClient(fn () => new MockResponse(json_encode([
+            ['address' => 'Tmatch', 'addressTag' => '', 'amount' => '100.00', 'status' => 0, 'confirmTimes' => '3/12', 'txId' => 'tx-c'],
+        ])));
+
+        $updates = iterator_to_array((new BinancePanel($httpClient, new NullLogger(), $this->makeEncryptor()))->checkDeposits($panel, [$request]));
+
+        self::assertSame(\App\Enum\PaymentStatus::PENDING, $updates[0]->status);
+        self::assertSame(3, $updates[0]->confirmations);
+        self::assertSame(12, $updates[0]->requiredConfirmations);
+    }
+
+    public function testCheckWithdrawalsReportsAmountTxIdAndConfirmNo(): void
+    {
+        $panel = $this->makePanel($this->makeEncryptor());
+        $request = new WithdrawalRequest('wd-1', $panel, 'USDT', 'TRC20', '10.00', 'Tdest', null, 'client-1');
+
+        $httpClient = new MockHttpClient(fn () => new MockResponse(json_encode([
+            ['id' => 'bw-1', 'withdrawOrderId' => 'client-1', 'amount' => '10.00000000', 'status' => 4, 'txId' => '0xabc', 'confirmNo' => 2],
+            ['id' => 'bw-2', 'withdrawOrderId' => 'someone-elses', 'amount' => '1', 'status' => 6, 'txId' => 'x'],
+        ])));
+
+        $updates = iterator_to_array((new BinancePanel($httpClient, new NullLogger(), $this->makeEncryptor()))->checkWithdrawals($panel, [$request]));
+
+        self::assertCount(1, $updates);
+        self::assertSame(\App\Enum\PaymentStatus::CONFIRMING, $updates[0]->status);
+        self::assertSame('0xabc', $updates[0]->txHash);
+        self::assertSame('10.00000000', $updates[0]->observedAmount);
+        self::assertSame(2, $updates[0]->confirmations);
+        self::assertNull($updates[0]->requiredConfirmations, 'Binance withdraw history does not publish a required count');
+    }
+
     public function testCheckDepositsIgnoresTransfersOlderThanTheRequest(): void
     {
         $panel = $this->makePanel($this->makeEncryptor());

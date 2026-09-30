@@ -26,7 +26,7 @@ use Symfony\Component\Uid\Uuid;
 )]
 class TestPanelConfirmCommand extends Command
 {
-    private const STATUS_OPTIONS = ['received', 'processing', 'completed', 'failed', 'expired'];
+    private const STATUS_OPTIONS = ['received', 'processing', 'awaiting_confirmations', 'completed', 'failed', 'expired', 'paused'];
 
     public function __construct(
         private readonly DepositRequestRepository $depositRequestRepository,
@@ -54,6 +54,10 @@ class TestPanelConfirmCommand extends Command
             $io->error('--status must be one of: '.implode(', ', self::STATUS_OPTIONS));
 
             return Command::INVALID;
+        }
+
+        if (PaymentRequestStatus::RECEIVED === $status) {
+            $status = PaymentRequestStatus::AWAITING_CONFIRMATIONS;
         }
 
         $reference = (string) $input->getArgument('id');

@@ -62,6 +62,10 @@ class Payment
     #[ORM\Column(nullable: true)]
     private ?int $confirmations = null;
 
+    /** Confirmations the panel/network needs before it treats the transfer as final; null when the panel does not report it. */
+    #[ORM\Column(nullable: true)]
+    private ?int $requiredConfirmations = null;
+
     /** Deposit: the panel's tx id. Withdrawal: the panel's withdrawal id. */
     #[ORM\Column(length: 128, nullable: true)]
     private ?string $panelReference = null;
@@ -101,9 +105,9 @@ class Payment
         return $payment;
     }
 
-    public static function forWithdrawal(WithdrawalRequest $request): self
+    public static function forWithdrawal(WithdrawalRequest $request, PaymentStatus $status = PaymentStatus::PENDING): self
     {
-        $payment = new self(PaymentRequestType::WITHDRAWAL, $request->getPanel(), $request->getAmount(), $request->getCurrency(), $request->getNetwork(), PaymentStatus::PENDING);
+        $payment = new self(PaymentRequestType::WITHDRAWAL, $request->getPanel(), $request->getAmount(), $request->getCurrency(), $request->getNetwork(), $status);
         $payment->withdrawalRequest = $request;
         $request->addPayment($payment);
 
@@ -189,6 +193,19 @@ class Payment
         return $this;
     }
 
+    public function getRequiredConfirmations(): ?int
+    {
+        return $this->requiredConfirmations;
+    }
+
+    public function setRequiredConfirmations(?int $requiredConfirmations): static
+    {
+        $this->requiredConfirmations = $requiredConfirmations;
+        $this->touch();
+
+        return $this;
+    }
+
     public function getPanelReference(): ?string
     {
         return $this->panelReference;
@@ -250,6 +267,7 @@ class Payment
             'currency' => $this->currency,
             'network' => $this->network,
             'confirmations' => $this->confirmations,
+            'required_confirmations' => $this->requiredConfirmations,
             'tx_hash' => $this->txHash,
         ];
     }

@@ -21,21 +21,27 @@ use Psr\Log\LoggerInterface;
  *
  * Only for requests on the test panel (code binance_test). The transitions
  * offered are the ones BinancePanel's pollers can produce: a deposit goes
- * RECEIVED/COMPLETED or expires (deposits never FAIL on Binance); a withdrawal
- * goes PROCESSING/COMPLETED/FAILED. PAUSED means "the payment was cancelled":
+ * AWAITING_CONFIRMATIONS/COMPLETED or expires (deposits never FAIL on Binance);
+ * a withdrawal goes PROCESSING/AWAITING_CONFIRMATIONS/COMPLETED, FAILED (payment
+ * error, request pauses). PAUSED means "the payment was cancelled":
  * the simulator drives the payment, the request status follows from it.
+ * Reachable from the console (app:test-panel:confirm) only; there are no admin buttons.
  */
 final class TestPanelSimulator
 {
     private const DEPOSIT_TRANSITIONS = [
-        'awaiting_payment' => [PaymentRequestStatus::RECEIVED, PaymentRequestStatus::COMPLETED, PaymentRequestStatus::EXPIRED],
+        'awaiting_payment' => [PaymentRequestStatus::AWAITING_CONFIRMATIONS, PaymentRequestStatus::COMPLETED, PaymentRequestStatus::EXPIRED],
         'received' => [PaymentRequestStatus::COMPLETED, PaymentRequestStatus::PAUSED],
+        'awaiting_confirmations' => [PaymentRequestStatus::COMPLETED, PaymentRequestStatus::PAUSED],
     ];
 
     private const WITHDRAWAL_TRANSITIONS = [
-        'submitted' => [PaymentRequestStatus::PROCESSING, PaymentRequestStatus::COMPLETED, PaymentRequestStatus::FAILED, PaymentRequestStatus::PAUSED],
-        'processing' => [PaymentRequestStatus::COMPLETED, PaymentRequestStatus::FAILED, PaymentRequestStatus::PAUSED],
+        'submitted' => [PaymentRequestStatus::PROCESSING, PaymentRequestStatus::AWAITING_CONFIRMATIONS, PaymentRequestStatus::COMPLETED, PaymentRequestStatus::FAILED, PaymentRequestStatus::PAUSED],
+        'processing' => [PaymentRequestStatus::AWAITING_CONFIRMATIONS, PaymentRequestStatus::COMPLETED, PaymentRequestStatus::FAILED, PaymentRequestStatus::PAUSED],
+        'awaiting_confirmations' => [PaymentRequestStatus::COMPLETED, PaymentRequestStatus::FAILED, PaymentRequestStatus::PAUSED],
     ];
+
+    private const REQUIRED_CONFIRMATIONS = 12;
 
     public function __construct(
         private readonly DepositRequestService $depositRequestService,
@@ -110,9 +116,10 @@ final class TestPanelSimulator
             $request,
             $paymentStatus,
             $amount ?? $request->getReceivedAmount() ?? $request->getExpectedAmount(),
-            PaymentStatus::COMPLETED === $paymentStatus ? 12 : 1,
+            PaymentStatus::COMPLETED === $paymentStatus ? self::REQUIRED_CONFIRMATIONS : 1,
             TestPanel::fakeDepositReference((string) $request->getId()),
             PaymentStatus::CANCELLED === $paymentStatus ? 'Test Panel: simulated cancellation' : null,
+            self::REQUIRED_CONFIRMATIONS,
         );
     }
 
@@ -142,15 +149,20 @@ final class TestPanelSimulator
             default => PaymentStatus::CONFIRMING,
         };
 
+        $seesTransfer = PaymentStatus::COMPLETED === $paymentStatus || PaymentRequestStatus::AWAITING_CONFIRMATIONS === $target;
+
         $this->withdrawalRequestService->applyPaymentUpdate(
             $request,
             $paymentStatus,
-            PaymentStatus::COMPLETED === $paymentStatus ? TestPanel::fakeTxHash((string) $request->getId()) : null,
+            $seesTransfer ? TestPanel::fakeTxHash((string) $request->getId()) : null,
             match ($paymentStatus) {
                 PaymentStatus::FAILED => 'Test Panel: simulated failure',
                 PaymentStatus::CANCELLED => 'Test Panel: simulated cancellation',
                 default => null,
             },
+            $seesTransfer ? $request->getAmount() : null,
+            $seesTransfer ? (PaymentStatus::COMPLETED === $paymentStatus ? self::REQUIRED_CONFIRMATIONS : 1) : null,
+            $seesTransfer ? self::REQUIRED_CONFIRMATIONS : null,
         );
     }
 

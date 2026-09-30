@@ -28,7 +28,7 @@ final class WithdrawalApiTest extends FunctionalTestCase
         return $panel;
     }
 
-    public function testCreateWithdrawalRequestReturns201AndSubmitsToPanel(): void
+    public function testCreateWithdrawalRequestReturns201AwaitingPayoutWithoutTouchingThePanel(): void
     {
         $client = static::createClient();
         $em = self::getContainer()->get(EntityManagerInterface::class);
@@ -47,11 +47,9 @@ final class WithdrawalApiTest extends FunctionalTestCase
 
         self::assertResponseStatusCodeSame(201);
         $data = json_decode($client->getResponse()->getContent(), true);
-        self::assertSame('submitted', $data['status']);
-        self::assertCount(1, $data['payments']);
-        self::assertSame('pending', $data['payments'][0]['status']);
-        self::assertSame('42.50', $data['payments'][0]['amount']);
-        self::assertSame('USDT', $data['payments'][0]['currency']);
+        self::assertSame('awaiting_payout', $data['status']);
+        self::assertSame([], $data['payments']);
+        self::assertSame(0, self::getContainer()->get(FakePanel::class)->withdrawalCalls);
     }
 
     public function testCreateWithdrawalRequestIsIdempotentByUuid(): void
@@ -82,29 +80,6 @@ final class WithdrawalApiTest extends FunctionalTestCase
         /** @var WithdrawalRequestRepository $repository */
         $repository = self::getContainer()->get(WithdrawalRequestRepository::class);
         self::assertCount(1, $repository->findBy(['uuid' => $uuid]));
-    }
-
-    public function testPanelRejectionResultsInSubmitFailedWith502(): void
-    {
-        $client = static::createClient();
-        $em = self::getContainer()->get(EntityManagerInterface::class);
-        $this->persistFakePanel($em);
-
-        /** @var FakePanel $fakePanel */
-        $fakePanel = self::getContainer()->get(FakePanel::class);
-        $fakePanel->setNextWithdrawalException(new \App\Panel\Exception\PanelException('insufficient balance'));
-
-        $client->request('POST', '/api/v1/withdrawals', server: ['HTTP_X_API_KEY' => self::API_KEY, 'CONTENT_TYPE' => 'application/json'], content: json_encode([
-            'uuid' => \Symfony\Component\Uid\Uuid::v4()->toRfc4122(),
-            'currency' => 'USDT',
-            'network' => 'TRC20',
-            'amount' => '42.50',
-            'destination_address' => 'Tdestination',
-        ]));
-
-        self::assertResponseStatusCodeSame(502);
-        $data = json_decode($client->getResponse()->getContent(), true);
-        self::assertSame('submit_failed', $data['status']);
     }
 
     public function testMissingApiKeyReturns401(): void

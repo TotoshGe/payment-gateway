@@ -36,7 +36,7 @@ class DepositRequestRepository extends ServiceEntityRepository
     {
         return $this->findBy([
             'panel' => $panel,
-            'status' => [PaymentRequestStatus::AWAITING_PAYMENT, PaymentRequestStatus::RECEIVED, PaymentRequestStatus::PAUSED],
+            'status' => [PaymentRequestStatus::AWAITING_PAYMENT, PaymentRequestStatus::RECEIVED, PaymentRequestStatus::AWAITING_CONFIRMATIONS, PaymentRequestStatus::PAUSED],
         ]);
     }
 }

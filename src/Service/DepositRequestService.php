@@ -144,7 +144,7 @@ final class DepositRequestService
      * status from its payments. The pooled address is released once the
      * request is terminal; PAUSED keeps it held.
      */
-    public function applyPaymentUpdate(DepositRequest $depositRequest, PaymentStatus $status, string $observedAmount, ?int $confirmations, ?string $panelReference, ?string $reason = null): void
+    public function applyPaymentUpdate(DepositRequest $depositRequest, PaymentStatus $status, string $observedAmount, ?int $confirmations, ?string $panelReference, ?string $reason = null, ?int $requiredConfirmations = null): void
     {
         if ($depositRequest->getStatus()->isTerminal()) {
             return;
@@ -162,10 +162,11 @@ final class DepositRequestService
         $isNew = $this->entityManager->getUnitOfWork()->isScheduledForInsert($payment);
         $changed = $payment->getStatus() !== $status
             || $payment->getAmount() !== $observedAmount
-            || $payment->getConfirmations() !== $confirmations;
+            || $payment->getConfirmations() !== $confirmations
+            || $payment->getRequiredConfirmations() !== $requiredConfirmations;
 
         if ($changed) {
-            $payment->setStatus($status)->setAmount($observedAmount)->setConfirmations($confirmations)->setReason($reason);
+            $payment->setStatus($status)->setAmount($observedAmount)->setConfirmations($confirmations)->setRequiredConfirmations($requiredConfirmations)->setReason($reason);
         }
         if (null !== $panelReference) {
             $payment->setPanelReference($panelReference)->setTxHash($panelReference);
@@ -184,7 +185,7 @@ final class DepositRequestService
             // Payment moved (status/confirmations) but the request status did
             // not: still tell Okean, unless the request is paused/terminal
             // (those already sent their own event).
-            if (PaymentRequestStatus::RECEIVED === $depositRequest->getStatus()) {
+            if (\in_array($depositRequest->getStatus(), [PaymentRequestStatus::RECEIVED, PaymentRequestStatus::AWAITING_CONFIRMATIONS], true)) {
                 $this->callbackDispatcher->dispatchFor($depositRequest);
             }
 
@@ -196,7 +197,7 @@ final class DepositRequestService
             $this->walletAddressPoolService->release($depositRequest);
             $this->entityManager->flush();
         }
-        // RECEIVED maps to deposit.updated, terminal/PAUSED to their own event.
+        // RECEIVED / AWAITING_CONFIRMATIONS map to deposit.updated, terminal/PAUSED to their own event.
         $this->callbackDispatcher->dispatchFor($depositRequest);
     }
 

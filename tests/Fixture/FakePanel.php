@@ -36,6 +36,8 @@ final class FakePanel implements PanelInterface
 
     private ?\Throwable $nextWithdrawalException = null;
 
+    public int $withdrawalCalls = 0;
+
     public function getCode(): string
     {
         return 'fake';
@@ -90,6 +92,8 @@ final class FakePanel implements PanelInterface
 
     public function executeWithdrawal(Panel $panel, WithdrawalExecutionRequest $request): WithdrawalExecutionResult
     {
+        ++$this->withdrawalCalls;
+
         if (null !== $this->nextWithdrawalException) {
             $exception = $this->nextWithdrawalException;
             $this->nextWithdrawalException = null;

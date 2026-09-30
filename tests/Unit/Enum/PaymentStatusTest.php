@@ -19,7 +19,7 @@ final class PaymentStatusTest extends TestCase
         yield 'pending' => [PaymentStatus::PENDING, PaymentRequestStatus::RECEIVED, PaymentRequestStatus::SUBMITTED];
         yield 'confirming' => [PaymentStatus::CONFIRMING, PaymentRequestStatus::RECEIVED, PaymentRequestStatus::PROCESSING];
         yield 'completed' => [PaymentStatus::COMPLETED, PaymentRequestStatus::COMPLETED, PaymentRequestStatus::COMPLETED];
-        yield 'failed' => [PaymentStatus::FAILED, PaymentRequestStatus::PAUSED, PaymentRequestStatus::FAILED];
+        yield 'failed' => [PaymentStatus::FAILED, PaymentRequestStatus::PAUSED, PaymentRequestStatus::PAUSED];
         yield 'cancelled' => [PaymentStatus::CANCELLED, PaymentRequestStatus::PAUSED, PaymentRequestStatus::PAUSED];
     }
 
