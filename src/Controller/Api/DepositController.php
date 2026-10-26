@@ -50,6 +50,12 @@ final class DepositController
         $dto->currency = strtoupper((string) ($data['currency'] ?? ''));
         $dto->network = isset($data['network']) && '' !== trim((string) $data['network']) ? strtoupper(trim((string) $data['network'])) : null;
         $dto->expectedAmount = (string) ($data['expected_amount'] ?? '');
+        if (isset($data['expires_in_minutes'])) {
+            if (!\is_int($data['expires_in_minutes'])) {
+                return new JsonResponse(['error' => 'Validation failed.', 'details' => [['field' => 'expiresInMinutes', 'message' => 'expires_in_minutes must be an integer.']]], 422);
+            }
+            $dto->expiresInMinutes = $data['expires_in_minutes'];
+        }
 
         $violations = $this->validator->validate($dto);
         if (\count($violations) > 0) {
@@ -63,6 +69,7 @@ final class DepositController
                 $dto->currency,
                 $dto->network,
                 $dto->expectedAmount,
+                $dto->expiresInMinutes,
             );
         } catch (PanelNotFoundException $exception) {
             return new JsonResponse(['error' => $exception->getMessage()], 422);

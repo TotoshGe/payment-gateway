@@ -22,4 +22,8 @@ final class CreateDepositRequestDto
     #[Assert\NotBlank]
     #[Assert\Regex(pattern: '/^\d+(\.\d+)?$/', message: 'expected_amount must be a plain decimal string.')]
     public string $expectedAmount = '';
+
+    /** How long the client has to pay, asked by the caller; null = app.deposit_address_ttl_minutes. */
+    #[Assert\Range(min: 5, max: 1440, notInRangeMessage: 'expires_in_minutes must be between {{ min }} and {{ max }}.')]
+    public ?int $expiresInMinutes = null;
 }

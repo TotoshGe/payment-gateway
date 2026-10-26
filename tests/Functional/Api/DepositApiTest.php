@@ -50,6 +50,32 @@ final class DepositApiTest extends FunctionalTestCase
         self::assertSame('fake-address-0', $data['address']);
     }
 
+    public function testExpiresInMinutesSetsTheDeadlineAndIsValidated(): void
+    {
+        $client = static::createClient();
+        $this->persistFakePanel(self::getContainer()->get(EntityManagerInterface::class));
+        $post = function (array $extra) use ($client): array {
+            $client->request('POST', '/api/v1/deposits', server: ['HTTP_X_API_KEY' => self::API_KEY, 'CONTENT_TYPE' => 'application/json'], content: json_encode([
+                'uuid' => \Symfony\Component\Uid\Uuid::v4()->toRfc4122(),
+                'currency' => 'USDT',
+                'network' => 'TRC20',
+                'expected_amount' => '10',
+            ] + $extra));
+
+            return [$client->getResponse()->getStatusCode(), json_decode($client->getResponse()->getContent(), true)];
+        };
+        $minutesLeft = static fn (array $data): float => ((new \DateTimeImmutable($data['expires_at']))->getTimestamp() - time()) / 60;
+
+        [$status, $data] = $post(['expires_in_minutes' => 30]);
+        self::assertSame(201, $status);
+        self::assertEqualsWithDelta(30, $minutesLeft($data), 1);
+
+        foreach ([4, 1441, '30', 30.5] as $bad) {
+            [$status] = $post(['expires_in_minutes' => $bad]);
+            self::assertSame(422, $status, 'expires_in_minutes ' . var_export($bad, true));
+        }
+    }
+
     public function testCreateDepositRequestIsIdempotentByUuid(): void
     {
         $client = static::createClient();

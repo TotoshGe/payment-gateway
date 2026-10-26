@@ -46,6 +46,7 @@ final class DepositRequestService
         string $currency,
         ?string $network,
         string $expectedAmount,
+        ?int $ttlMinutes = null,
     ): array {
         $existing = $this->depositRequestRepository->findOneByUuid($uuid);
         if (null !== $existing) {
@@ -62,7 +63,7 @@ final class DepositRequestService
             }
         }
 
-        $expiresAt = (new \DateTimeImmutable())->modify(sprintf('+%d minutes', $this->addressTtlMinutes));
+        $expiresAt = (new \DateTimeImmutable())->modify(sprintf('+%d minutes', $ttlMinutes ?? $this->addressTtlMinutes));
         $depositRequest = new DepositRequest($uuid, $panel, $currency, $network, $expectedAmount, $expiresAt);
 
         $this->entityManager->persist($depositRequest);
